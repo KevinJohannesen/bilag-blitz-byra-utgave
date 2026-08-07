@@ -6,10 +6,10 @@ import { leaderboardScores } from "@/lib/db/schema"
 import {
   HighScoreEntry,
   MAX_ENTRIES,
-  isValidDifficulty,
   qualifiesForLeaderboard,
   sortLeaderboard,
 } from "@/lib/highscore"
+import { parseSubmitBody } from "@/lib/leaderboard-validation"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -50,29 +50,13 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as {
-      name?: unknown
-      score?: unknown
-      level?: unknown
-      difficulty?: unknown
+    const body = await request.json()
+    const parsed = parseSubmitBody(body)
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 })
     }
 
-    const name =
-      typeof body.name === "string" ? body.name.trim().slice(0, 16) || "Anonym" : "Anonym"
-    const score = typeof body.score === "number" ? Math.floor(body.score) : NaN
-    const level = typeof body.level === "number" ? Math.floor(body.level) : NaN
-    const difficulty = typeof body.difficulty === "string" ? body.difficulty : ""
-
-    if (!Number.isFinite(score) || score <= 0 || score > 1_000_000) {
-      return NextResponse.json({ error: "Ugyldig poengsum" }, { status: 400 })
-    }
-    if (!Number.isFinite(level) || level < 1 || level > 10_000) {
-      return NextResponse.json({ error: "Ugyldig nivå" }, { status: 400 })
-    }
-    if (!isValidDifficulty(difficulty)) {
-      return NextResponse.json({ error: "Ugyldig vanskelighetsgrad" }, { status: 400 })
-    }
-
+    const { name, score, level, difficulty } = parsed
     const current = await getTopEntries()
     if (!qualifiesForLeaderboard(current, score)) {
       return NextResponse.json(

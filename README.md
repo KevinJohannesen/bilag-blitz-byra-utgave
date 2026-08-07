@@ -79,6 +79,7 @@ Et innebygd **kontooversiktspanel** kan aktiveres for nybegynnere.
 - **[TypeScript 5](https://www.typescriptlang.org/)** — full typesikkerhet
 - **[Tailwind CSS v4](https://tailwindcss.com/)** — utility-first styling
 - **[Neon](https://neon.tech/)** + **[Drizzle ORM](https://orm.drizzle.team/)** — delt toppliste i Postgres
+- **[Vitest](https://vitest.dev/)** — enhetstester for spill- og API-logikk
 - **[Shadcn UI](https://ui.shadcn.com/)** — komponentbibliotek (new-york stil)
 - **[Radix UI](https://www.radix-ui.com/)** — tilgjengelige UI-primitiver
 - **[Lucide React](https://lucide.dev/)** — ikoner
@@ -123,6 +124,23 @@ pnpm build
 pnpm start
 ```
 
+### Tester
+
+```bash
+pnpm test
+pnpm test:watch
+```
+
+### Agent skills (Theo / T3-stil)
+
+Prosjekt-skills ligger i `.agents/skills/` (symlinket til `.claude/skills` og `.cursor/skills`):
+
+| Skill | Bruk |
+|-------|------|
+| `$test-bilag-blitz` | Lokal verifisering av spill + toppliste-API |
+| `$ns4102-kontoplan` | Endringer i kontoplan / bilagmaler |
+| `$deploy-bilag-blitz` | Neon + Vercel deploy |
+
 ### Deploy (Vercel)
 
 1. Opprett et Neon-prosjekt og kopier connection string
@@ -154,7 +172,9 @@ bilag-blitz-byra-utgave/
 │   ├── db/                   # Drizzle + Neon
 │   ├── accounting-data.ts
 │   ├── highscore.ts          # Toppliste-klient + validering
+│   ├── spawn-lanes.ts
 │   └── utils.ts
+├── .agents/skills/           # Agent skills (T3/Claude/Cursor)
 └── drizzle.config.ts
 ```
 

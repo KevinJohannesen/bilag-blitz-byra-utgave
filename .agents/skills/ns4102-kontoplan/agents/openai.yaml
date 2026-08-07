@@ -1,0 +1,4 @@
+interface:
+  display_name: "NS 4102 Kontoplan"
+  short_description: "Edit chart of accounts and bilag templates safely"
+  default_prompt: "Use $ns4102-kontoplan when changing accounts, templates, or difficulty balance."

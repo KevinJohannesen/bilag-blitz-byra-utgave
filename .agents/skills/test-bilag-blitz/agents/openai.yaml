@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bilag Blitz Testing"
+  short_description: "Launch and verify local Bilag Blitz with shared leaderboard"
+  default_prompt: "Use $test-bilag-blitz to start the game locally and verify UI plus /api/leaderboard."

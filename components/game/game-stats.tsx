@@ -43,11 +43,20 @@ export function GameStats({
           <p className="text-[10px] uppercase tracking-[0.14em] text-paper-bright/45">Nivå</p>
           <p className="font-display text-xl font-bold text-moss-bright">{level}</p>
         </div>
-        <div className="text-center">
+        <div className="relative text-center">
           <p className="text-[10px] uppercase tracking-[0.14em] text-paper-bright/45">Streak</p>
-          <p className={`font-display text-xl font-bold ${streak >= 3 ? "text-stamp-soft" : "text-paper-bright"}`}>
+          <p
+            className={`font-display text-xl font-bold ${
+              streak >= 3 ? "animate-streak-pulse text-stamp-soft" : "text-paper-bright"
+            }`}
+          >
             {streak}
           </p>
+          {streak >= 3 && (
+            <span className="animate-streak-badge absolute -right-8 -top-1 rounded-full bg-stamp px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-accent-foreground">
+              x{streak}
+            </span>
+          )}
         </div>
         <div className="text-center">
           <p className="text-[10px] uppercase tracking-[0.14em] text-paper-bright/45">Tid</p>

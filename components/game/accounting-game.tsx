@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import { FallingReceipt } from "./falling-receipt"
-import { AccountPanel } from "./account-panel"
+import { AccountHints, AccountInput } from "./account-panel"
 import { GameStats } from "./game-stats"
 import {
   generateTransaction,
@@ -10,7 +10,6 @@ import {
   DIFFICULTY_LEVELS,
   DIFFICULTY_LABELS,
   DifficultySettings,
-  ACCOUNTS,
   SPAWN_LANES,
 } from "@/lib/accounting-data"
 import {
@@ -20,6 +19,7 @@ import {
   qualifiesForLeaderboard,
   submitHighScore,
 } from "@/lib/highscore"
+import { pickSpawnLane } from "@/lib/spawn-lanes"
 
 interface FallingTransaction extends Transaction {
   positionY: number
@@ -33,29 +33,8 @@ type GameState = "menu" | "playing" | "paused" | "gameover"
 
 const GAME_HEIGHT = 520
 const RECEIPT_HEIGHT = 160
-/** Bilag nærmere toppen enn dette blokkerer sin bane. */
 const LANE_BLOCK_Y = RECEIPT_HEIGHT + 40
 const MAX_ACTIVE_RECEIPTS = 3
-
-function pickSpawnLane(active: FallingTransaction[]): number | null {
-  const blocking = active.filter(
-    (tx) => tx.isCorrect === null && tx.positionY < LANE_BLOCK_Y
-  )
-  const freeLanes = SPAWN_LANES.map((_, index) => index).filter(
-    (lane) => !blocking.some((tx) => tx.lane === lane)
-  )
-
-  if (freeLanes.length === 0) return null
-
-  // Velg ledig bane med færrest aktive bilag totalt
-  freeLanes.sort((a, b) => {
-    const countA = active.filter((tx) => tx.lane === a && tx.isCorrect === null).length
-    const countB = active.filter((tx) => tx.lane === b && tx.isCorrect === null).length
-    return countA - countB
-  })
-
-  return freeLanes[0]
-}
 
 export function AccountingGame() {
   const [gameState, setGameState] = useState<GameState>("menu")
@@ -75,10 +54,12 @@ export function AccountingGame() {
 
   const [fallingTransactions, setFallingTransactions] = useState<FallingTransaction[]>([])
   const [inputValue, setInputValue] = useState("")
+  const [focusToken, setFocusToken] = useState(0)
   const [lastResult, setLastResult] = useState<{
     correct: boolean
     account: string
     expected: string
+    pointsEarned?: number
   } | null>(null)
 
   const gameLoopRef = useRef<number | null>(null)
@@ -143,7 +124,7 @@ export function AccountingGame() {
     const active = fallingRef.current.filter((tx) => tx.isCorrect === null)
     if (active.length >= MAX_ACTIVE_RECEIPTS) return false
 
-    const lane = pickSpawnLane(active)
+    const lane = pickSpawnLane(active, { blockY: LANE_BLOCK_Y })
     if (lane === null) return false
 
     const tx = generateTransaction()
@@ -262,6 +243,12 @@ export function AccountingGame() {
       const totalPoints = settings.pointsPerCorrect + timeBonus + streakBonus
       setScore((s) => s + totalPoints)
       setStreak((s) => s + 1)
+      setLastResult({
+        correct: true,
+        account: inputValue,
+        expected: target.correctAccount,
+        pointsEarned: totalPoints,
+      })
     } else {
       setStreak(0)
       setLives((l) => {
@@ -269,13 +256,13 @@ export function AccountingGame() {
         if (newLives <= 0) setGameState("gameover")
         return Math.max(0, newLives)
       })
+      setLastResult({
+        correct: false,
+        account: inputValue,
+        expected: target.correctAccount,
+      })
     }
 
-    setLastResult({
-      correct: isCorrect,
-      account: inputValue,
-      expected: target.correctAccount,
-    })
     setInputValue("")
     setTimeout(() => setLastResult(null), 2000)
   }, [inputValue, fallingTransactions, gameState, streak, getSettings])
@@ -326,11 +313,19 @@ export function AccountingGame() {
     .filter((tx) => tx.isCorrect === null)
     .sort((a, b) => b.positionY - a.positionY)[0]?.id
 
+  const activeTransaction =
+    fallingTransactions.find((tx) => tx.id === activeTransactionId) ?? null
+
+  const selectAccountCode = (code: string) => {
+    setInputValue(code)
+    setFocusToken((t) => t + 1)
+  }
+
   const canSaveScore = qualifiesForLeaderboard(leaderboard, score)
 
   return (
     <div className="game-atmosphere min-h-screen px-4 py-6">
-      <div className="mx-auto max-w-4xl">
+      <div className={`mx-auto ${gameState === "playing" || gameState === "paused" ? "max-w-6xl" : "max-w-4xl"}`}>
         <header className="mb-6 text-center">
           <h1 className="animate-brand-rise font-display text-5xl font-extrabold tracking-tight text-ink md:text-6xl">
             Bilag Blitz
@@ -345,18 +340,27 @@ export function AccountingGame() {
             <div className="grid gap-0 md:grid-cols-[1.1fr_0.9fr]">
               <div className="p-8 md:p-10">
                 <h2 className="font-display text-2xl font-bold text-ink">Klar for bokføring?</h2>
-                <p className="mt-3 max-w-md text-ink/65">
-                  Bilag faller ned. Tast riktig kontokode fra NS 4102 før de treffer bunnen. Raske
-                  svar og lange streaks gir bonus.
-                </p>
 
-                <div className="mt-5 rounded-xl border border-danger/25 bg-danger/5 p-4">
-                  <p className="text-sm font-semibold text-danger">Du mister et liv hvis:</p>
-                  <ul className="mt-1 space-y-1 text-sm text-ink/70">
-                    <li>et bilag faller forbi den røde linjen</li>
-                    <li>du taster feil kontokode</li>
-                  </ul>
-                </div>
+                <ol className="mt-5 space-y-3">
+                  <li className="flex gap-3 text-sm text-ink/70">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-moss text-xs font-bold text-primary-foreground">
+                      1
+                    </span>
+                    <span>Bilag faller ned fra toppen — se etter det markerte aktive bilaget.</span>
+                  </li>
+                  <li className="flex gap-3 text-sm text-ink/70">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-moss text-xs font-bold text-primary-foreground">
+                      2
+                    </span>
+                    <span>Tast riktig NS 4102-kontokode før det treffer den røde linjen.</span>
+                  </li>
+                  <li className="flex gap-3 text-sm text-ink/70">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-moss text-xs font-bold text-primary-foreground">
+                      3
+                    </span>
+                    <span>Raske svar og lange streaks gir bonus. Feil eller miss = −1 liv.</span>
+                  </li>
+                </ol>
 
                 <div className="mt-6">
                   <p className="mb-2 text-[11px] uppercase tracking-[0.14em] text-ink/45">
@@ -386,7 +390,7 @@ export function AccountingGame() {
                     onChange={(e) => setShowHints(e.target.checked)}
                     className="h-4 w-4 rounded border-ink/30"
                   />
-                  Vis kontooversikt (anbefalt for nybegynnere)
+                  Vis kontooversikt under spill (anbefalt for nybegynnere)
                 </label>
 
                 <button
@@ -442,20 +446,6 @@ export function AccountingGame() {
                     ))}
                   </ol>
                 )}
-
-                <div className="mt-8 border-t border-paper-bright/10 pt-5">
-                  <p className="mb-3 text-[11px] uppercase tracking-[0.14em] text-paper-bright/40">
-                    Eksempelkontoer
-                  </p>
-                  <div className="grid grid-cols-1 gap-1.5 text-sm">
-                    {ACCOUNTS.slice(0, 6).map((acc) => (
-                      <div key={acc.code} className="flex gap-2">
-                        <span className="font-mono text-stamp-soft">{acc.code}</span>
-                        <span className="truncate text-paper-bright/55">{acc.name}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
               </div>
             </div>
           </div>
@@ -483,57 +473,89 @@ export function AccountingGame() {
             </div>
 
             <div
-              className="game-field relative overflow-hidden rounded-2xl border-2 border-ink/15"
-              style={{ height: `${GAME_HEIGHT}px` }}
+              className={`grid gap-3 ${
+                showHints ? "md:grid-cols-[1fr_300px] md:items-stretch" : ""
+              }`}
             >
-              <div className="pointer-events-none absolute inset-0 opacity-[0.12]">
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="absolute w-full border-b border-ink"
-                    style={{ top: `${(i + 1) * 11}%` }}
-                  />
-                ))}
+              <div className="min-w-0 space-y-3">
+                <div
+                  className="game-field relative overflow-hidden rounded-2xl border-2 border-ink/15"
+                  style={{ height: `${GAME_HEIGHT}px` }}
+                >
+                  <div className="pointer-events-none absolute inset-0 opacity-[0.12]">
+                    {Array.from({ length: 8 }).map((_, i) => (
+                      <div
+                        key={i}
+                        className="absolute w-full border-b border-ink"
+                        style={{ top: `${(i + 1) * 11}%` }}
+                      />
+                    ))}
+                  </div>
+
+                  {SPAWN_LANES.map((x) => (
+                    <div
+                      key={x}
+                      className="pointer-events-none absolute top-0 bottom-8 w-px bg-ink/10"
+                      style={{ left: `${x}%` }}
+                    />
+                  ))}
+
+                  <div className="absolute bottom-0 left-0 right-0 h-10 border-t-2 border-dashed border-danger bg-danger/15" />
+
+                  {fallingTransactions.map((tx) => (
+                    <FallingReceipt
+                      key={tx.id}
+                      transaction={tx}
+                      positionY={tx.positionY}
+                      positionX={tx.positionX}
+                      isCorrect={tx.isCorrect}
+                      isActive={tx.id === activeTransactionId}
+                    />
+                  ))}
+
+                  {gameState === "paused" && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-ink/80">
+                      <div className="text-center text-paper-bright">
+                        <p className="font-display text-3xl font-bold">Pause</p>
+                        <p className="mt-2 text-paper-bright/60">Trykk Fortsett for å spille videre</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <AccountInput
+                  inputValue={inputValue}
+                  onInputChange={setInputValue}
+                  onSubmit={handleSubmit}
+                  lastResult={lastResult}
+                  focusToken={focusToken}
+                  activeHint={
+                    activeTransaction
+                      ? {
+                          description: activeTransaction.description,
+                          company: activeTransaction.company,
+                        }
+                      : null
+                  }
+                />
+
+                {showHints && (
+                  <div className="md:hidden">
+                    <AccountHints variant="mobile" onSelectCode={selectAccountCode} />
+                  </div>
+                )}
               </div>
 
-              {SPAWN_LANES.map((x) => (
-                <div
-                  key={x}
-                  className="pointer-events-none absolute top-0 bottom-8 w-px bg-ink/10"
-                  style={{ left: `${x}%` }}
-                />
-              ))}
-
-              <div className="absolute bottom-0 left-0 right-0 h-10 border-t-2 border-dashed border-danger bg-danger/15" />
-
-              {fallingTransactions.map((tx) => (
-                <FallingReceipt
-                  key={tx.id}
-                  transaction={tx}
-                  positionY={tx.positionY}
-                  positionX={tx.positionX}
-                  isCorrect={tx.isCorrect}
-                  isActive={tx.id === activeTransactionId}
-                />
-              ))}
-
-              {gameState === "paused" && (
-                <div className="absolute inset-0 flex items-center justify-center bg-ink/80">
-                  <div className="text-center text-paper-bright">
-                    <p className="font-display text-3xl font-bold">Pause</p>
-                    <p className="mt-2 text-paper-bright/60">Trykk Fortsett for å spille videre</p>
-                  </div>
+              {showHints && (
+                <div className="hidden md:flex md:min-h-0 md:flex-col">
+                  <AccountHints
+                    variant="sidebar"
+                    className="min-h-full"
+                    onSelectCode={selectAccountCode}
+                  />
                 </div>
               )}
             </div>
-
-            <AccountPanel
-              inputValue={inputValue}
-              onInputChange={setInputValue}
-              onSubmit={handleSubmit}
-              lastResult={lastResult}
-              showHints={showHints}
-            />
           </div>
         )}
 

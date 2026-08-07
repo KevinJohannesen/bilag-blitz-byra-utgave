@@ -10,67 +10,62 @@ interface GameStatsProps {
   timeElapsed: number
 }
 
-export function GameStats({ 
-  score, 
-  highScore, 
-  lives, 
-  maxLives, 
-  streak, 
+export function GameStats({
+  score,
+  highScore,
+  lives,
+  maxLives,
+  streak,
   level,
-  timeElapsed 
+  timeElapsed,
 }: GameStatsProps) {
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
     const secs = seconds % 60
-    return `${mins}:${secs.toString().padStart(2, '0')}`
+    return `${mins}:${secs.toString().padStart(2, "0")}`
   }
 
   return (
-    <div className="flex items-center justify-between bg-stone-800 text-stone-100 px-4 py-3 rounded-lg">
-      {/* Score section */}
-      <div className="flex items-center gap-6">
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-ink px-4 py-3 text-paper-bright shadow-lg">
+      <div className="flex items-center gap-5">
         <div>
-          <p className="text-xs text-stone-400">Poeng</p>
-          <p className="text-2xl font-bold font-mono text-amber-400">{score.toLocaleString()}</p>
+          <p className="text-[10px] uppercase tracking-[0.14em] text-paper-bright/45">Poeng</p>
+          <p className="font-mono text-2xl font-bold text-stamp-soft">{score.toLocaleString("nb-NO")}</p>
         </div>
         <div>
-          <p className="text-xs text-stone-400">Rekord</p>
-          <p className="text-lg font-mono text-stone-300">{highScore.toLocaleString()}</p>
+          <p className="text-[10px] uppercase tracking-[0.14em] text-paper-bright/45">Rekord</p>
+          <p className="font-mono text-lg text-paper-bright/80">{highScore.toLocaleString("nb-NO")}</p>
         </div>
       </div>
-      
-      {/* Center stats */}
-      <div className="flex items-center gap-6">
+
+      <div className="flex items-center gap-5">
         <div className="text-center">
-          <p className="text-xs text-stone-400">Nivå</p>
-          <p className="text-xl font-bold text-blue-400">{level}</p>
+          <p className="text-[10px] uppercase tracking-[0.14em] text-paper-bright/45">Nivå</p>
+          <p className="font-display text-xl font-bold text-moss-bright">{level}</p>
         </div>
         <div className="text-center">
-          <p className="text-xs text-stone-400">Streak</p>
-          <div className="flex items-center gap-1">
-            <p className="text-xl font-bold text-orange-400">{streak}</p>
-            {streak >= 3 && <span className="text-orange-400">🔥</span>}
-          </div>
+          <p className="text-[10px] uppercase tracking-[0.14em] text-paper-bright/45">Streak</p>
+          <p className={`font-display text-xl font-bold ${streak >= 3 ? "text-stamp-soft" : "text-paper-bright"}`}>
+            {streak}
+          </p>
         </div>
         <div className="text-center">
-          <p className="text-xs text-stone-400">Tid</p>
-          <p className="text-lg font-mono text-stone-300">{formatTime(timeElapsed)}</p>
+          <p className="text-[10px] uppercase tracking-[0.14em] text-paper-bright/45">Tid</p>
+          <p className="font-mono text-lg text-paper-bright/80">{formatTime(timeElapsed)}</p>
         </div>
       </div>
-      
-      {/* Lives */}
+
       <div>
-        <p className="text-xs text-stone-400 mb-1">Liv</p>
-        <div className="flex gap-1">
+        <p className="mb-1 text-[10px] uppercase tracking-[0.14em] text-paper-bright/45">Liv</p>
+        <div className="flex gap-1.5">
           {Array.from({ length: maxLives }).map((_, i) => (
             <div
               key={i}
-              className={`w-6 h-6 rounded-full flex items-center justify-center text-sm ${
-                i < lives ? 'bg-red-500 text-white' : 'bg-stone-700 text-stone-500'
+              className={`h-2.5 w-6 rounded-sm transition-colors ${
+                i < lives ? "bg-danger" : "bg-paper-bright/15"
               }`}
-            >
-              ♥
-            </div>
+              aria-hidden
+            />
           ))}
         </div>
       </div>

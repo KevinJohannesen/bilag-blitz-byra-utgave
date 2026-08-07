@@ -10,88 +10,93 @@ interface AccountPanelProps {
   showHints: boolean
 }
 
-export function AccountPanel({ 
-  inputValue, 
-  onInputChange, 
-  onSubmit, 
+export function AccountPanel({
+  inputValue,
+  onInputChange,
+  onSubmit,
   lastResult,
-  showHints 
+  showHints,
 }: AccountPanelProps) {
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
+    if (e.key === "Enter") {
       onSubmit()
     }
   }
 
-  // Group accounts by category
-  const accountsByCategory = ACCOUNTS.reduce((acc, account) => {
-    if (!acc[account.category]) {
-      acc[account.category] = []
-    }
-    acc[account.category].push(account)
-    return acc
-  }, {} as Record<string, typeof ACCOUNTS>)
+  const accountsByCategory = ACCOUNTS.reduce(
+    (acc, account) => {
+      if (!acc[account.category]) acc[account.category] = []
+      acc[account.category].push(account)
+      return acc
+    },
+    {} as Record<string, typeof ACCOUNTS>
+  )
 
   return (
-    <div className="bg-stone-900 text-stone-100 p-4 rounded-lg">
-      {/* Input area */}
+    <div className="rounded-xl bg-ink p-4 text-paper-bright shadow-lg">
       <div className="mb-4">
-        <label className="block text-sm text-stone-400 mb-2">
-          Skriv inn kontokode:
+        <label className="mb-2 block text-[11px] uppercase tracking-[0.14em] text-paper-bright/45">
+          Kontokode
         </label>
         <div className="flex gap-2">
           <input
             type="text"
+            inputMode="numeric"
             value={inputValue}
-            onChange={(e) => onInputChange(e.target.value.replace(/\D/g, '').slice(0, 4))}
+            onChange={(e) => onInputChange(e.target.value.replace(/\D/g, "").slice(0, 4))}
             onKeyDown={handleKeyDown}
-            placeholder="f.eks. 1920"
-            className="flex-1 px-4 py-3 text-2xl font-mono bg-stone-800 border border-stone-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 text-center tracking-widest"
+            placeholder="1920"
+            className="flex-1 rounded-lg border border-paper-bright/15 bg-ink-soft px-4 py-3 text-center font-mono text-2xl tracking-[0.35em] text-paper-bright placeholder:text-paper-bright/25 focus:outline-none focus:ring-2 focus:ring-stamp"
             autoFocus
           />
           <button
             onClick={onSubmit}
-            className="px-6 py-3 bg-amber-600 hover:bg-amber-500 text-stone-900 font-bold rounded-lg transition-colors"
+            className="rounded-lg bg-stamp px-6 py-3 font-display font-bold text-accent-foreground transition-colors hover:bg-stamp-soft hover:text-ink"
           >
             Bokfør
           </button>
         </div>
-        
-        {/* Last result feedback */}
+
         {lastResult && (
-          <div className={`mt-2 p-3 rounded-lg text-sm font-medium ${
-            lastResult.correct 
-              ? 'bg-emerald-900/50 text-emerald-300 border border-emerald-700' 
-              : 'bg-red-900/50 text-red-300 border border-red-700 animate-pulse'
-          }`}>
+          <div
+            className={`mt-2 rounded-lg p-3 text-sm font-medium ${
+              lastResult.correct
+                ? "border border-moss/40 bg-moss/20 text-moss-bright"
+                : "border border-danger/40 bg-danger/20 text-red-200"
+            }`}
+          >
             {lastResult.correct ? (
               <span>Riktig! Konto {lastResult.account}</span>
             ) : (
               <div>
-                <span className="block text-red-200 font-bold">-1 Liv! Feil kontokode!</span>
-                <span className="block mt-1">
-                  Du skrev: <span className="font-mono">{lastResult.account}</span> | 
-                  Riktig: <span className="font-mono text-amber-300">{lastResult.expected}</span> ({ACCOUNTS.find(a => a.code === lastResult.expected)?.name})
+                <span className="block font-bold text-red-100">−1 liv — feil kontokode</span>
+                <span className="mt-1 block text-paper-bright/80">
+                  Du skrev: <span className="font-mono">{lastResult.account}</span>
+                  {" · "}
+                  Riktig:{" "}
+                  <span className="font-mono text-stamp-soft">{lastResult.expected}</span> (
+                  {ACCOUNTS.find((a) => a.code === lastResult.expected)?.name})
                 </span>
               </div>
             )}
           </div>
         )}
       </div>
-      
-      {/* Account reference (collapsible) */}
+
       {showHints && (
-        <div className="border-t border-stone-700 pt-3">
-          <p className="text-xs text-stone-500 mb-2">Kontooversikt:</p>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs max-h-40 overflow-y-auto">
+        <div className="border-t border-paper-bright/10 pt-3">
+          <p className="mb-2 text-[11px] uppercase tracking-[0.14em] text-paper-bright/40">
+            Kontooversikt (NS 4102)
+          </p>
+          <div className="grid max-h-44 grid-cols-2 gap-x-4 gap-y-1 overflow-y-auto text-xs">
             {Object.entries(accountsByCategory).map(([category, accounts]) => (
               <div key={category} className="col-span-2 mb-2">
-                <p className="text-stone-400 font-semibold mb-1">{category}</p>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 pl-2">
-                  {accounts.map(account => (
+                <p className="mb-1 font-semibold text-paper-bright/55">{category}</p>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 pl-1">
+                  {accounts.map((account) => (
                     <div key={account.code} className="flex gap-2">
-                      <span className="font-mono text-amber-400">{account.code}</span>
-                      <span className="text-stone-400 truncate">{account.name}</span>
+                      <span className="font-mono text-stamp-soft">{account.code}</span>
+                      <span className="truncate text-paper-bright/50">{account.name}</span>
                     </div>
                   ))}
                 </div>

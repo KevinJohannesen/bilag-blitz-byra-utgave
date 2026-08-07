@@ -1,6 +1,6 @@
 {
-  "name": "bilag-blitz",
-  "version": "0.1.0",
+  "name": "bilag-blitz-byra-utgave",
+  "version": "0.2.0",
   "private": true,
   "scripts": {
     "dev": "next dev",

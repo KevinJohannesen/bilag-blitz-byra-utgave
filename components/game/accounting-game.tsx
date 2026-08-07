@@ -4,163 +4,180 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { FallingReceipt } from "./falling-receipt"
 import { AccountPanel } from "./account-panel"
 import { GameStats } from "./game-stats"
-import { 
-  generateTransaction, 
-  Transaction, 
-  DIFFICULTY_LEVELS, 
+import {
+  generateTransaction,
+  Transaction,
+  DIFFICULTY_LEVELS,
+  DIFFICULTY_LABELS,
   DifficultySettings,
-  ACCOUNTS 
+  ACCOUNTS,
+  SPAWN_LANES,
 } from "@/lib/accounting-data"
+import {
+  HighScoreEntry,
+  addHighScore,
+  getBestScore,
+  loadLeaderboard,
+  qualifiesForLeaderboard,
+} from "@/lib/highscore"
 
 interface FallingTransaction extends Transaction {
   positionY: number
   positionX: number
+  lane: number
   isCorrect: boolean | null
   spawnTime: number
 }
 
-type GameState = 'menu' | 'playing' | 'paused' | 'gameover'
+type GameState = "menu" | "playing" | "paused" | "gameover"
 
-const GAME_HEIGHT = 500
-const RECEIPT_HEIGHT = 180
+const GAME_HEIGHT = 520
+const RECEIPT_HEIGHT = 160
+/** Bilag nærmere toppen enn dette blokkerer sin bane. */
+const LANE_BLOCK_Y = RECEIPT_HEIGHT + 40
+const MAX_ACTIVE_RECEIPTS = 3
+
+function pickSpawnLane(active: FallingTransaction[]): number | null {
+  const blocking = active.filter(
+    (tx) => tx.isCorrect === null && tx.positionY < LANE_BLOCK_Y
+  )
+  const freeLanes = SPAWN_LANES.map((_, index) => index).filter(
+    (lane) => !blocking.some((tx) => tx.lane === lane)
+  )
+
+  if (freeLanes.length === 0) return null
+
+  // Velg ledig bane med færrest aktive bilag totalt
+  freeLanes.sort((a, b) => {
+    const countA = active.filter((tx) => tx.lane === a && tx.isCorrect === null).length
+    const countB = active.filter((tx) => tx.lane === b && tx.isCorrect === null).length
+    return countA - countB
+  })
+
+  return freeLanes[0]
+}
 
 export function AccountingGame() {
-  // Game state
-  const [gameState, setGameState] = useState<GameState>('menu')
-  const [difficulty, setDifficulty] = useState<string>('medium')
+  const [gameState, setGameState] = useState<GameState>("menu")
+  const [difficulty, setDifficulty] = useState<string>("medium")
   const [score, setScore] = useState(0)
-  const [highScore, setHighScore] = useState(0)
+  const [leaderboard, setLeaderboard] = useState<HighScoreEntry[]>([])
   const [lives, setLives] = useState(4)
   const [streak, setStreak] = useState(0)
   const [level, setLevel] = useState(1)
   const [timeElapsed, setTimeElapsed] = useState(0)
   const [showHints, setShowHints] = useState(true)
-  
-  // Transactions
+  const [playerName, setPlayerName] = useState("")
+  const [scoreSaved, setScoreSaved] = useState(false)
+
   const [fallingTransactions, setFallingTransactions] = useState<FallingTransaction[]>([])
-  const [inputValue, setInputValue] = useState('')
-  const [lastResult, setLastResult] = useState<{ correct: boolean; account: string; expected: string } | null>(null)
-  
-  // Refs for game loop
+  const [inputValue, setInputValue] = useState("")
+  const [lastResult, setLastResult] = useState<{
+    correct: boolean
+    account: string
+    expected: string
+  } | null>(null)
+
   const gameLoopRef = useRef<number | null>(null)
   const lastTimeRef = useRef<number>(0)
   const spawnTimerRef = useRef<number>(0)
   const isFirstFrameRef = useRef<boolean>(true)
-  
-  // Get current difficulty settings with level scaling
+  const fallingRef = useRef<FallingTransaction[]>([])
+
+  const highScore = getBestScore(leaderboard)
+  const difficultyHighScore = getBestScore(leaderboard, difficulty)
+
   const getSettings = useCallback((): DifficultySettings => {
     const base = DIFFICULTY_LEVELS[difficulty]
     const levelMultiplier = 1 + (level - 1) * 0.1
     return {
       ...base,
       fallSpeed: base.fallSpeed * levelMultiplier,
-      spawnInterval: Math.max(1500, base.spawnInterval / levelMultiplier),
+      spawnInterval: Math.max(1600, base.spawnInterval / levelMultiplier),
     }
   }, [difficulty, level])
-  
-  // Load high score from localStorage
+
   useEffect(() => {
-    const saved = localStorage.getItem('bilag-blitz-highscore')
-    if (saved) {
-      setHighScore(parseInt(saved, 10))
-    }
+    setLeaderboard(loadLeaderboard())
   }, [])
-  
-  // Save high score
+
   useEffect(() => {
-    if (score > highScore) {
-      setHighScore(score)
-      localStorage.setItem('bilag-blitz-highscore', score.toString())
-    }
-  }, [score, highScore])
-  
-  // Level up based on score
+    fallingRef.current = fallingTransactions
+  }, [fallingTransactions])
+
   useEffect(() => {
     const newLevel = Math.floor(score / 1000) + 1
-    if (newLevel > level) {
-      setLevel(newLevel)
-    }
+    if (newLevel > level) setLevel(newLevel)
   }, [score, level])
-  
-  // Timer
+
   useEffect(() => {
-    if (gameState !== 'playing') return
-    
-    const timer = setInterval(() => {
-      setTimeElapsed(t => t + 1)
-    }, 1000)
-    
+    if (gameState !== "playing") return
+    const timer = setInterval(() => setTimeElapsed((t) => t + 1), 1000)
     return () => clearInterval(timer)
   }, [gameState])
-  
-  // Spawn new transaction
+
   const spawnTransaction = useCallback(() => {
+    const active = fallingRef.current.filter((tx) => tx.isCorrect === null)
+    if (active.length >= MAX_ACTIVE_RECEIPTS) return false
+
+    const lane = pickSpawnLane(active)
+    if (lane === null) return false
+
     const tx = generateTransaction()
     const newTx: FallingTransaction = {
       ...tx,
       positionY: -RECEIPT_HEIGHT,
-      positionX: 20 + Math.random() * 60, // Random horizontal position (20-80%)
+      positionX: SPAWN_LANES[lane],
+      lane,
       isCorrect: null,
       spawnTime: Date.now(),
     }
-    setFallingTransactions(prev => [...prev, newTx])
+    setFallingTransactions((prev) => [...prev, newTx])
+    return true
   }, [])
-  
-  // Game loop
+
   useEffect(() => {
-    if (gameState !== 'playing') {
-      if (gameLoopRef.current) {
-        cancelAnimationFrame(gameLoopRef.current)
-      }
+    if (gameState !== "playing") {
+      if (gameLoopRef.current) cancelAnimationFrame(gameLoopRef.current)
       return
     }
-    
+
     const settings = getSettings()
-    const FIXED_TIMESTEP = 16.667 // Target 60fps timestep
-    const MAX_DELTA = 100 // Cap delta to prevent huge jumps after tab switch
-    
+    const FIXED_TIMESTEP = 16.667
+    const MAX_DELTA = 100
+
     const gameLoop = (timestamp: number) => {
-      // Handle first frame - don't accumulate time
       if (isFirstFrameRef.current) {
         lastTimeRef.current = timestamp
         isFirstFrameRef.current = false
         gameLoopRef.current = requestAnimationFrame(gameLoop)
         return
       }
-      
-      // Calculate capped delta time for smooth animation
+
       const rawDelta = timestamp - lastTimeRef.current
       const deltaTime = Math.min(rawDelta, MAX_DELTA)
       lastTimeRef.current = timestamp
-      
-      // Normalized time factor (1.0 at 60fps)
       const timeFactor = deltaTime / FIXED_TIMESTEP
-      
-      // Spawn logic with consistent intervals
+
       spawnTimerRef.current += deltaTime
       if (spawnTimerRef.current >= settings.spawnInterval) {
-        spawnTransaction()
-        spawnTimerRef.current = 0
+        const spawned = spawnTransaction()
+        // Hvis banen var blokkert: prøv igjen snart, ikke vent hele intervallet
+        spawnTimerRef.current = spawned ? 0 : settings.spawnInterval - 400
       }
-      
-      // Update positions with consistent velocity
-      setFallingTransactions(prev => {
-        const updated = prev.map(tx => ({
+
+      setFallingTransactions((prev) => {
+        const updated = prev.map((tx) => ({
           ...tx,
           positionY: tx.positionY + settings.fallSpeed * timeFactor,
         }))
-        
-        // Check for transactions that hit the bottom
+
         const stillFalling: FallingTransaction[] = []
         let livesLost = 0
-        
+
         for (const tx of updated) {
           if (tx.positionY >= GAME_HEIGHT - 20) {
-            if (tx.isCorrect === null) {
-              // Missed - lose a life
-              livesLost++
-            }
-            // Remove after animation
+            if (tx.isCorrect === null) livesLost++
             if (tx.positionY < GAME_HEIGHT + 100) {
               stillFalling.push({ ...tx, isCorrect: tx.isCorrect ?? false })
             }
@@ -168,27 +185,25 @@ export function AccountingGame() {
             stillFalling.push(tx)
           }
         }
-        
+
         if (livesLost > 0) {
-          setLives(l => {
+          setLives((l) => {
             const newLives = l - livesLost
-            if (newLives <= 0) {
-              setGameState('gameover')
-            }
+            if (newLives <= 0) setGameState("gameover")
             return Math.max(0, newLives)
           })
           setStreak(0)
         }
-        
-        return stillFalling.filter(tx => tx.positionY < GAME_HEIGHT + 100)
+
+        return stillFalling.filter((tx) => tx.positionY < GAME_HEIGHT + 100)
       })
-      
+
       gameLoopRef.current = requestAnimationFrame(gameLoop)
     }
-    
+
     lastTimeRef.current = performance.now()
     gameLoopRef.current = requestAnimationFrame(gameLoop)
-    
+
     return () => {
       if (gameLoopRef.current) {
         cancelAnimationFrame(gameLoopRef.current)
@@ -196,67 +211,54 @@ export function AccountingGame() {
       }
     }
   }, [gameState, getSettings, spawnTransaction])
-  
-  // Handle answer submission
+
   const handleSubmit = useCallback(() => {
-    if (!inputValue || gameState !== 'playing') return
-    
+    if (!inputValue || gameState !== "playing") return
+
     const settings = getSettings()
-    
-    // Find the lowest (closest to bottom) unanswered transaction
     const activeTransactions = fallingTransactions
-      .filter(tx => tx.isCorrect === null)
+      .filter((tx) => tx.isCorrect === null)
       .sort((a, b) => b.positionY - a.positionY)
-    
+
     if (activeTransactions.length === 0) return
-    
+
     const target = activeTransactions[0]
     const isCorrect = inputValue === target.correctAccount
-    
-    setFallingTransactions(prev => 
-      prev.map(tx => 
-        tx.id === target.id ? { ...tx, isCorrect } : tx
-      )
+
+    setFallingTransactions((prev) =>
+      prev.map((tx) => (tx.id === target.id ? { ...tx, isCorrect } : tx))
     )
-    
+
     if (isCorrect) {
-      // Calculate bonus for speed
       const responseTime = (Date.now() - target.spawnTime) / 1000
-      const timeBonus = responseTime < settings.bonusTimeThreshold 
-        ? Math.floor((settings.bonusTimeThreshold - responseTime) * 20)
-        : 0
+      const timeBonus =
+        responseTime < settings.bonusTimeThreshold
+          ? Math.floor((settings.bonusTimeThreshold - responseTime) * 20)
+          : 0
       const streakBonus = streak * 10
       const totalPoints = settings.pointsPerCorrect + timeBonus + streakBonus
-      
-      setScore(s => s + totalPoints)
-      setStreak(s => s + 1)
+      setScore((s) => s + totalPoints)
+      setStreak((s) => s + 1)
     } else {
-      // Wrong answer - lose a life!
       setStreak(0)
-      setLives(l => {
+      setLives((l) => {
         const newLives = l - 1
-        if (newLives <= 0) {
-          setGameState('gameover')
-        }
+        if (newLives <= 0) setGameState("gameover")
         return Math.max(0, newLives)
       })
     }
-    
+
     setLastResult({
       correct: isCorrect,
       account: inputValue,
       expected: target.correctAccount,
     })
-    
-    setInputValue('')
-    
-    // Clear result after 2 seconds
+    setInputValue("")
     setTimeout(() => setLastResult(null), 2000)
   }, [inputValue, fallingTransactions, gameState, streak, getSettings])
-  
-  // Start game
+
   const startGame = () => {
-    setGameState('playing')
+    setGameState("playing")
     setScore(0)
     setLives(DIFFICULTY_LEVELS[difficulty].lives)
     setStreak(0)
@@ -264,156 +266,213 @@ export function AccountingGame() {
     setTimeElapsed(0)
     setFallingTransactions([])
     setLastResult(null)
-    setInputValue('')
-    // Reset timing refs for clean start
+    setInputValue("")
+    setScoreSaved(false)
     isFirstFrameRef.current = true
-    spawnTimerRef.current = DIFFICULTY_LEVELS[difficulty].spawnInterval - 500 // Spawn after brief delay
+    spawnTimerRef.current = DIFFICULTY_LEVELS[difficulty].spawnInterval - 500
   }
-  
-  // Pause/Resume
+
   const togglePause = () => {
-    setGameState(prev => prev === 'playing' ? 'paused' : 'playing')
+    setGameState((prev) => (prev === "playing" ? "paused" : "playing"))
+    if (gameState === "paused") isFirstFrameRef.current = true
   }
-  
-  // Get the active (lowest) transaction for highlighting
+
+  const saveScore = () => {
+    if (scoreSaved || !qualifiesForLeaderboard(leaderboard, score)) return
+    const name = playerName.trim() || "Anonym"
+    const next = addHighScore(leaderboard, {
+      name: name.slice(0, 16),
+      score,
+      level,
+      difficulty,
+    })
+    setLeaderboard(next)
+    setScoreSaved(true)
+  }
+
   const activeTransactionId = fallingTransactions
-    .filter(tx => tx.isCorrect === null)
+    .filter((tx) => tx.isCorrect === null)
     .sort((a, b) => b.positionY - a.positionY)[0]?.id
 
+  const canSaveScore = qualifiesForLeaderboard(leaderboard, score)
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-stone-100 to-stone-200 p-4">
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <header className="text-center mb-4">
-          <h1 className="text-3xl font-bold text-stone-800">Bilag Blitz</h1>
-          <p className="text-stone-500">Bokfør bilagene før de faller ned!</p>
+    <div className="game-atmosphere min-h-screen px-4 py-6">
+      <div className="mx-auto max-w-4xl">
+        <header className="mb-6 text-center">
+          <h1 className="animate-brand-rise font-display text-5xl font-extrabold tracking-tight text-ink md:text-6xl">
+            Bilag Blitz
+          </h1>
+          <p className="animate-brand-rise-delay mt-2 text-ink/60">
+            Bokfør bilagene før de treffer den røde linjen
+          </p>
         </header>
-        
-        {/* Menu Screen */}
-        {gameState === 'menu' && (
-          <div className="bg-white rounded-xl shadow-lg p-8 text-center">
-            <div className="mb-8">
-              <div className="text-6xl mb-4">📊</div>
-              <h2 className="text-2xl font-bold text-stone-800 mb-2">Velkommen til Bilag Blitz!</h2>
-              <p className="text-stone-600 max-w-md mx-auto">
-                Bilag faller ned fra himmelen. Tast inn riktig kontokode fra Norsk Standard Kontoplan 
-                for de treffer bunnen. Jo raskere du svarer, jo flere poeng far du!
-              </p>
-              <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-3 max-w-sm mx-auto">
-                <p className="text-sm text-red-700 font-medium">
-                  Du mister et liv hvis:
+
+        {gameState === "menu" && (
+          <div className="overflow-hidden rounded-2xl border border-ink/10 bg-paper-bright/90 shadow-[0_24px_60px_rgba(15,31,28,0.12)]">
+            <div className="grid gap-0 md:grid-cols-[1.1fr_0.9fr]">
+              <div className="p-8 md:p-10">
+                <h2 className="font-display text-2xl font-bold text-ink">Klar for bokføring?</h2>
+                <p className="mt-3 max-w-md text-ink/65">
+                  Bilag faller ned. Tast riktig kontokode fra NS 4102 før de treffer bunnen. Raske
+                  svar og lange streaks gir bonus.
                 </p>
-                <ul className="text-sm text-red-600 mt-1">
-                  <li>- Et bilag faller forbi den rode linjen</li>
-                  <li>- Du taster feil kontokode</li>
-                </ul>
-              </div>
-            </div>
-            
-            <div className="mb-6">
-              <p className="text-sm text-stone-500 mb-2">Velg vanskelighetsgrad:</p>
-              <div className="flex justify-center gap-2">
-                {Object.keys(DIFFICULTY_LEVELS).map(level => (
-                  <button
-                    key={level}
-                    onClick={() => setDifficulty(level)}
-                    className={`px-4 py-2 rounded-lg font-medium capitalize transition-colors ${
-                      difficulty === level
-                        ? 'bg-amber-600 text-white'
-                        : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
-                    }`}
-                  >
-                    {level === 'easy' ? 'Lett' : level === 'medium' ? 'Medium' : level === 'hard' ? 'Vanskelig' : 'Ekspert'}
-                  </button>
-                ))}
-              </div>
-            </div>
-            
-            <div className="mb-6">
-              <label className="flex items-center justify-center gap-2 text-sm text-stone-600">
-                <input
-                  type="checkbox"
-                  checked={showHints}
-                  onChange={e => setShowHints(e.target.checked)}
-                  className="w-4 h-4 rounded"
-                />
-                Vis kontooversikt (anbefalt for nybegynnere)
-              </label>
-            </div>
-            
-            <button
-              onClick={startGame}
-              className="px-8 py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xl rounded-lg transition-colors shadow-lg"
-            >
-              Start Spill
-            </button>
-            
-            {highScore > 0 && (
-              <p className="mt-4 text-stone-500">
-                Din rekord: <span className="font-bold text-amber-600">{highScore.toLocaleString()}</span> poeng
-              </p>
-            )}
-            
-            {/* Quick reference */}
-            <div className="mt-8 pt-6 border-t border-stone-200">
-              <p className="text-sm text-stone-500 mb-3">Eksempel på kontoer du vil møte:</p>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-                {ACCOUNTS.slice(0, 8).map(acc => (
-                  <div key={acc.code} className="bg-stone-50 rounded p-2">
-                    <span className="font-mono text-amber-600">{acc.code}</span>
-                    <span className="text-stone-500 ml-2">{acc.name}</span>
+
+                <div className="mt-5 rounded-xl border border-danger/25 bg-danger/5 p-4">
+                  <p className="text-sm font-semibold text-danger">Du mister et liv hvis:</p>
+                  <ul className="mt-1 space-y-1 text-sm text-ink/70">
+                    <li>et bilag faller forbi den røde linjen</li>
+                    <li>du taster feil kontokode</li>
+                  </ul>
+                </div>
+
+                <div className="mt-6">
+                  <p className="mb-2 text-[11px] uppercase tracking-[0.14em] text-ink/45">
+                    Vanskelighetsgrad
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.keys(DIFFICULTY_LEVELS).map((levelKey) => (
+                      <button
+                        key={levelKey}
+                        onClick={() => setDifficulty(levelKey)}
+                        className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+                          difficulty === levelKey
+                            ? "bg-moss text-primary-foreground"
+                            : "bg-ledger text-ink/70 hover:bg-muted"
+                        }`}
+                      >
+                        {DIFFICULTY_LABELS[levelKey]}
+                      </button>
+                    ))}
                   </div>
-                ))}
+                </div>
+
+                <label className="mt-5 flex items-center gap-2 text-sm text-ink/65">
+                  <input
+                    type="checkbox"
+                    checked={showHints}
+                    onChange={(e) => setShowHints(e.target.checked)}
+                    className="h-4 w-4 rounded border-ink/30"
+                  />
+                  Vis kontooversikt (anbefalt for nybegynnere)
+                </label>
+
+                <button
+                  onClick={startGame}
+                  className="animate-pulse-stamp mt-8 w-full rounded-xl bg-moss px-8 py-4 font-display text-xl font-bold text-primary-foreground transition-colors hover:bg-moss-bright md:w-auto"
+                >
+                  Start spill
+                </button>
+
+                {difficultyHighScore > 0 && (
+                  <p className="mt-4 text-sm text-ink/55">
+                    Rekord på {DIFFICULTY_LABELS[difficulty]}:{" "}
+                    <span className="font-mono font-semibold text-stamp">
+                      {difficultyHighScore.toLocaleString("nb-NO")}
+                    </span>
+                  </p>
+                )}
+              </div>
+
+              <div className="border-t border-ink/8 bg-ink px-6 py-8 text-paper-bright md:border-l md:border-t-0 md:px-8">
+                <h3 className="font-display text-lg font-bold">Toppliste</h3>
+                <p className="mt-1 text-xs text-paper-bright/45">Lagres lokalt i nettleseren</p>
+
+                {leaderboard.length === 0 ? (
+                  <p className="mt-8 text-sm text-paper-bright/50">
+                    Ingen rekorder ennå. Vær først ute!
+                  </p>
+                ) : (
+                  <ol className="mt-5 space-y-2">
+                    {leaderboard.slice(0, 8).map((entry, index) => (
+                      <li
+                        key={`${entry.name}-${entry.date}-${index}`}
+                        className="flex items-center justify-between gap-3 rounded-lg bg-paper-bright/5 px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate font-medium">
+                            <span className="mr-2 font-mono text-stamp-soft">
+                              {String(index + 1).padStart(2, "0")}
+                            </span>
+                            {entry.name}
+                          </p>
+                          <p className="text-[11px] text-paper-bright/40">
+                            {DIFFICULTY_LABELS[entry.difficulty] ?? entry.difficulty} · nivå{" "}
+                            {entry.level}
+                          </p>
+                        </div>
+                        <span className="shrink-0 font-mono font-semibold text-stamp-soft">
+                          {entry.score.toLocaleString("nb-NO")}
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+
+                <div className="mt-8 border-t border-paper-bright/10 pt-5">
+                  <p className="mb-3 text-[11px] uppercase tracking-[0.14em] text-paper-bright/40">
+                    Eksempelkontoer
+                  </p>
+                  <div className="grid grid-cols-1 gap-1.5 text-sm">
+                    {ACCOUNTS.slice(0, 6).map((acc) => (
+                      <div key={acc.code} className="flex gap-2">
+                        <span className="font-mono text-stamp-soft">{acc.code}</span>
+                        <span className="truncate text-paper-bright/55">{acc.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         )}
-        
-        {/* Game Screen */}
-        {(gameState === 'playing' || gameState === 'paused') && (
-          <div className="space-y-4">
-            {/* Stats bar */}
+
+        {(gameState === "playing" || gameState === "paused") && (
+          <div className="space-y-3">
             <GameStats
               score={score}
-              highScore={highScore}
+              highScore={Math.max(highScore, score)}
               lives={lives}
               maxLives={DIFFICULTY_LEVELS[difficulty].lives}
               streak={streak}
               level={level}
               timeElapsed={timeElapsed}
             />
-            
-            {/* Pause button */}
+
             <div className="flex justify-end">
               <button
                 onClick={togglePause}
-                className="px-4 py-2 bg-stone-600 hover:bg-stone-500 text-white rounded-lg text-sm transition-colors"
+                className="rounded-lg bg-ink/90 px-4 py-2 text-sm text-paper-bright transition-colors hover:bg-ink"
               >
-                {gameState === 'paused' ? 'Fortsett' : 'Pause'}
+                {gameState === "paused" ? "Fortsett" : "Pause"}
               </button>
             </div>
-            
-            {/* Game area */}
-            <div 
-              className="relative bg-gradient-to-b from-blue-100 to-blue-200 rounded-xl overflow-hidden border-4 border-stone-300"
+
+            <div
+              className="game-field relative overflow-hidden rounded-2xl border-2 border-ink/15"
               style={{ height: `${GAME_HEIGHT}px` }}
             >
-              {/* Grid lines for visual reference */}
-              <div className="absolute inset-0 opacity-10">
-                {Array.from({ length: 10 }).map((_, i) => (
+              <div className="pointer-events-none absolute inset-0 opacity-[0.12]">
+                {Array.from({ length: 8 }).map((_, i) => (
                   <div
                     key={i}
-                    className="absolute w-full border-b border-stone-400"
-                    style={{ top: `${(i + 1) * 10}%` }}
+                    className="absolute w-full border-b border-ink"
+                    style={{ top: `${(i + 1) * 11}%` }}
                   />
                 ))}
               </div>
-              
-              {/* Danger zone */}
-              <div className="absolute bottom-0 left-0 right-0 h-8 bg-red-500/20 border-t-2 border-red-400 border-dashed" />
-              
-              {/* Falling receipts */}
-              {fallingTransactions.map(tx => (
+
+              {SPAWN_LANES.map((x) => (
+                <div
+                  key={x}
+                  className="pointer-events-none absolute top-0 bottom-8 w-px bg-ink/10"
+                  style={{ left: `${x}%` }}
+                />
+              ))}
+
+              <div className="absolute bottom-0 left-0 right-0 h-10 border-t-2 border-dashed border-danger bg-danger/15" />
+
+              {fallingTransactions.map((tx) => (
                 <FallingReceipt
                   key={tx.id}
                   transaction={tx}
@@ -423,19 +482,17 @@ export function AccountingGame() {
                   isActive={tx.id === activeTransactionId}
                 />
               ))}
-              
-              {/* Pause overlay */}
-              {gameState === 'paused' && (
-                <div className="absolute inset-0 bg-stone-900/80 flex items-center justify-center">
-                  <div className="text-center text-white">
-                    <p className="text-3xl font-bold mb-2">PAUSE</p>
-                    <p className="text-stone-300">Trykk på "Fortsett" for å spille videre</p>
+
+              {gameState === "paused" && (
+                <div className="absolute inset-0 flex items-center justify-center bg-ink/80">
+                  <div className="text-center text-paper-bright">
+                    <p className="font-display text-3xl font-bold">Pause</p>
+                    <p className="mt-2 text-paper-bright/60">Trykk Fortsett for å spille videre</p>
                   </div>
                 </div>
               )}
             </div>
-            
-            {/* Input panel */}
+
             <AccountPanel
               inputValue={inputValue}
               onInputChange={setInputValue}
@@ -445,72 +502,90 @@ export function AccountingGame() {
             />
           </div>
         )}
-        
-        {/* Game Over Screen */}
-        {gameState === 'gameover' && (
-          <div className="bg-white rounded-xl shadow-lg p-8 text-center">
-            <div className="text-6xl mb-4">📉</div>
-            <h2 className="text-3xl font-bold text-stone-800 mb-2">Spill Over!</h2>
-            <p className="text-stone-600 mb-6">Regnskapet ditt har gått i balanse... negativt!</p>
-            
-            <div className="grid grid-cols-3 gap-4 mb-8 max-w-md mx-auto">
-              <div className="bg-stone-50 rounded-lg p-4">
-                <p className="text-sm text-stone-500">Poeng</p>
-                <p className="text-2xl font-bold text-amber-600">{score.toLocaleString()}</p>
+
+        {gameState === "gameover" && (
+          <div className="rounded-2xl border border-ink/10 bg-paper-bright p-8 text-center shadow-[0_24px_60px_rgba(15,31,28,0.12)] md:p-10">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-stamp">Regnskapet er lukket</p>
+            <h2 className="mt-2 font-display text-4xl font-bold text-ink">Spill over</h2>
+            <p className="mt-2 text-ink/60">Balanse… men ikke på den gode måten.</p>
+
+            <div className="mx-auto mt-8 grid max-w-md grid-cols-3 gap-3">
+              <div className="rounded-xl bg-ledger/70 p-4">
+                <p className="text-[11px] uppercase tracking-wider text-ink/45">Poeng</p>
+                <p className="font-mono text-2xl font-bold text-stamp">{score.toLocaleString("nb-NO")}</p>
               </div>
-              <div className="bg-stone-50 rounded-lg p-4">
-                <p className="text-sm text-stone-500">Nivå</p>
-                <p className="text-2xl font-bold text-blue-600">{level}</p>
+              <div className="rounded-xl bg-ledger/70 p-4">
+                <p className="text-[11px] uppercase tracking-wider text-ink/45">Nivå</p>
+                <p className="font-display text-2xl font-bold text-moss">{level}</p>
               </div>
-              <div className="bg-stone-50 rounded-lg p-4">
-                <p className="text-sm text-stone-500">Tid</p>
-                <p className="text-2xl font-bold text-stone-600">
-                  {Math.floor(timeElapsed / 60)}:{(timeElapsed % 60).toString().padStart(2, '0')}
+              <div className="rounded-xl bg-ledger/70 p-4">
+                <p className="text-[11px] uppercase tracking-wider text-ink/45">Tid</p>
+                <p className="font-mono text-2xl font-bold text-ink">
+                  {Math.floor(timeElapsed / 60)}:{(timeElapsed % 60).toString().padStart(2, "0")}
                 </p>
               </div>
             </div>
-            
-            {score >= highScore && score > 0 && (
-              <div className="bg-amber-100 text-amber-800 rounded-lg p-4 mb-6">
-                <p className="font-bold">Ny rekord!</p>
+
+            {canSaveScore && !scoreSaved && (
+              <div className="mx-auto mt-8 max-w-sm rounded-xl border border-stamp/30 bg-stamp/5 p-5">
+                <p className="font-display text-lg font-bold text-ink">Ny plassering på topplisten!</p>
+                <div className="mt-3 flex gap-2">
+                  <input
+                    type="text"
+                    value={playerName}
+                    onChange={(e) => setPlayerName(e.target.value.slice(0, 16))}
+                    placeholder="Ditt navn"
+                    className="flex-1 rounded-lg border border-ink/15 bg-paper-bright px-3 py-2 text-ink focus:outline-none focus:ring-2 focus:ring-stamp"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") saveScore()
+                    }}
+                  />
+                  <button
+                    onClick={saveScore}
+                    className="rounded-lg bg-stamp px-4 py-2 font-semibold text-accent-foreground hover:bg-stamp-soft hover:text-ink"
+                  >
+                    Lagre
+                  </button>
+                </div>
               </div>
             )}
-            
-            <div className="flex justify-center gap-4">
+
+            {scoreSaved && (
+              <div className="mx-auto mt-6 max-w-sm rounded-xl bg-moss/10 px-4 py-3 text-moss">
+                Rekorden er lagret!
+              </div>
+            )}
+
+            <div className="mt-8 flex flex-wrap justify-center gap-3">
               <button
                 onClick={startGame}
-                className="px-8 py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg transition-colors"
+                className="rounded-xl bg-moss px-8 py-3.5 font-display font-bold text-primary-foreground transition-colors hover:bg-moss-bright"
               >
-                Spill Igjen
+                Spill igjen
               </button>
               <button
-                onClick={() => setGameState('menu')}
-                className="px-8 py-4 bg-stone-200 hover:bg-stone-300 text-stone-700 font-bold rounded-lg transition-colors"
+                onClick={() => setGameState("menu")}
+                className="rounded-xl bg-ledger px-8 py-3.5 font-display font-bold text-ink transition-colors hover:bg-muted"
               >
                 Hovedmeny
               </button>
             </div>
           </div>
         )}
-        
-        {/* Footer */}
-        <footer className="mt-6 text-center text-sm text-stone-500 space-y-1">
-          <p>Basert på Norsk Standard Kontoplan (NS 4102)</p>
+
+        <footer className="mt-8 space-y-1 text-center text-sm text-ink/45">
+          <p>Generell nordisk kontoplan basert på NS 4102</p>
           <p>
             <a
-              href="https://github.com/KevinJohannesen/bilag-blitz"
+              href="https://github.com/KevinJohannesen/bilag-blitz-byra-utgave"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 hover:text-stone-700 transition-colors"
+              className="inline-flex items-center gap-1.5 transition-colors hover:text-ink"
             >
-              <svg
-                viewBox="0 0 24 24"
-                className="w-4 h-4 fill-current"
-                aria-hidden="true"
-              >
+              <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current" aria-hidden="true">
                 <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844a9.59 9.59 0 012.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0022 12.017C22 6.484 17.522 2 12 2z" />
               </svg>
-              KevinJohannesen/bilag-blitz
+              KevinJohannesen/bilag-blitz-byra-utgave
             </a>
           </p>
         </footer>

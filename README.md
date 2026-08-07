@@ -1,9 +1,11 @@
 <div align="center">
   <img src="app/icon.png" alt="Bilag Blitz" width="120" />
 
-# Bilag Blitz
+# Bilag Blitz – Byrå utgave
 
 **Et norsk regnskapsspill der bilag faller ned og du bokfører dem i sanntid.**
+
+Byrå-utgaven har oppdatert NS 4102-kontoplan, lokal toppliste, polert UI og spawn-baner som hindrer overlappende bilag.
 
 ![Next.js](https://img.shields.io/badge/Next.js-16.2-black?logo=next.js)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react)
@@ -57,14 +59,14 @@ Jo raskere du svarer, jo flere poeng får du. Feil svar eller bilag som faller f
 
 Spillet er basert på **NS 4102 — Norsk Standard Kontoplan**. Du vil møte kontoer fra alle hovedklassene:
 
-| Klasse | Kategori                   | Eksempler                                              |
-| ------ | -------------------------- | ------------------------------------------------------ |
-| 1xxx   | Eiendeler                  | 1200 Maskiner, 1500 Kundefordringer, 1920 Bankinnskudd |
-| 2xxx   | Gjeld & egenkapital        | 2400 Leverandørgjeld, 2710 Utgående MVA                |
-| 3xxx   | Inntekter                  | 3000 Salgsinntekter, 3100 Tjenestesalg                 |
-| 4xxx   | Varekostnad                | 4000 Varekostnad, 4300 Innkjøp varer                   |
-| 5xxx   | Lønnskostnader             | 5000 Lønn, 5400 Arbeidsgiveravgift                     |
-| 6–7xxx | Drifts- og andre kostnader | 6300 Leiekostnader, 7350 Reisekostnader                |
+| Klasse | Kategori                   | Eksempler                                                              |
+| ------ | -------------------------- | ---------------------------------------------------------------------- |
+| 1xxx   | Eiendeler                  | 1200 Maskiner, 1500 Kundefordringer, 1920 Bankinnskudd                 |
+| 2xxx   | Gjeld & egenkapital        | 2400 Leverandørgjeld, 2600 Skattetrekk, 2701/2711 MVA, 2770 Skyldig AGA |
+| 3xxx   | Inntekter                  | 3000 Salgsinntekt varer, 3100 Salgsinntekt tjenester                   |
+| 4xxx   | Varekostnad                | 4000 Varekostnad, 4300 Innkjøp varer                                   |
+| 5xxx   | Lønnskostnader             | 5000 Lønn til ansatte, 5400 Arbeidsgiveravgift                         |
+| 6–7xxx | Drifts- og andre kostnader | 6300 Leie lokaler, 6700 Regnskap, 7350 Reise, 7770 Bankgebyr           |
 
 Et innebygd **kontooversiktspanel** kan aktiveres for nybegynnere.
 
@@ -136,6 +138,7 @@ bilag-blitz/
 │   └── use-toast.ts          # Toast-notifikasjoner
 └── lib/
     ├── accounting-data.ts    # NS 4102-kontoplan og transaksjonsdata
+    ├── highscore.ts          # Lokal toppliste (localStorage)
     └── utils.ts              # Tailwind cn()-hjelper
 ```
 
@@ -148,5 +151,5 @@ MIT
 ---
 
 <div align="center">
-  <sub>Kildekode tilgjengelig på <a href="https://github.com/KevinJohannesen/bilag-blitz">github.com/KevinJohannesen/bilag-blitz</a></sub>
+  <sub>Kildekode tilgjengelig på <a href="https://github.com/KevinJohannesen/bilag-blitz-byra-utgave">github.com/KevinJohannesen/bilag-blitz-byra-utgave</a></sub>
 </div>

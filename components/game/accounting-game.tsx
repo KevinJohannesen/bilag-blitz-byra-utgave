@@ -67,9 +67,24 @@ export function AccountingGame() {
   const spawnTimerRef = useRef<number>(0)
   const isFirstFrameRef = useRef<boolean>(true)
   const fallingRef = useRef<FallingTransaction[]>([])
+  const livesRef = useRef(lives)
+  const penalizedMissIdsRef = useRef<Set<string>>(new Set())
 
   const highScore = getBestScore(leaderboard)
   const difficultyHighScore = getBestScore(leaderboard, difficulty)
+
+  useEffect(() => {
+    livesRef.current = lives
+  }, [lives])
+
+  const loseLives = useCallback((amount: number) => {
+    if (amount <= 0) return
+    const next = Math.max(0, livesRef.current - amount)
+    livesRef.current = next
+    setLives(next)
+    setStreak(0)
+    if (next <= 0) setGameState("gameover")
+  }, [])
 
   const getSettings = useCallback((): DifficultySettings => {
     const base = DIFFICULTY_LEVELS[difficulty]
@@ -181,7 +196,11 @@ export function AccountingGame() {
 
         for (const tx of updated) {
           if (tx.positionY >= GAME_HEIGHT - 20) {
-            if (tx.isCorrect === null) livesLost++
+            // Ett miss telles bare én gang (Strict Mode kan kjøre updateren to ganger)
+            if (tx.isCorrect === null && !penalizedMissIdsRef.current.has(tx.id)) {
+              penalizedMissIdsRef.current.add(tx.id)
+              livesLost++
+            }
             if (tx.positionY < GAME_HEIGHT + 100) {
               stillFalling.push({ ...tx, isCorrect: tx.isCorrect ?? false })
             }
@@ -190,14 +209,7 @@ export function AccountingGame() {
           }
         }
 
-        if (livesLost > 0) {
-          setLives((l) => {
-            const newLives = l - livesLost
-            if (newLives <= 0) setGameState("gameover")
-            return Math.max(0, newLives)
-          })
-          setStreak(0)
-        }
+        if (livesLost > 0) loseLives(livesLost)
 
         return stillFalling.filter((tx) => tx.positionY < GAME_HEIGHT + 100)
       })
@@ -214,7 +226,7 @@ export function AccountingGame() {
         gameLoopRef.current = null
       }
     }
-  }, [gameState, getSettings, spawnTransaction])
+  }, [gameState, getSettings, spawnTransaction, loseLives])
 
   const handleSubmit = useCallback(() => {
     if (!inputValue || gameState !== "playing") return
@@ -250,12 +262,7 @@ export function AccountingGame() {
         pointsEarned: totalPoints,
       })
     } else {
-      setStreak(0)
-      setLives((l) => {
-        const newLives = l - 1
-        if (newLives <= 0) setGameState("gameover")
-        return Math.max(0, newLives)
-      })
+      loseLives(1)
       setLastResult({
         correct: false,
         account: inputValue,
@@ -265,12 +272,14 @@ export function AccountingGame() {
 
     setInputValue("")
     setTimeout(() => setLastResult(null), 2000)
-  }, [inputValue, fallingTransactions, gameState, streak, getSettings])
+  }, [inputValue, fallingTransactions, gameState, streak, getSettings, loseLives])
 
   const startGame = () => {
     setGameState("playing")
     setScore(0)
-    setLives(DIFFICULTY_LEVELS[difficulty].lives)
+    const startingLives = DIFFICULTY_LEVELS[difficulty].lives
+    livesRef.current = startingLives
+    setLives(startingLives)
     setStreak(0)
     setLevel(1)
     setTimeElapsed(0)
@@ -279,6 +288,7 @@ export function AccountingGame() {
     setInputValue("")
     setScoreSaved(false)
     setSaveError(null)
+    penalizedMissIdsRef.current.clear()
     isFirstFrameRef.current = true
     spawnTimerRef.current = DIFFICULTY_LEVELS[difficulty].spawnInterval - 500
   }

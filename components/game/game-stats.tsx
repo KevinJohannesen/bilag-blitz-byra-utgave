@@ -57,15 +57,19 @@ export function GameStats({
 
       <div>
         <p className="mb-1 text-[10px] uppercase tracking-[0.14em] text-paper-bright/45">Liv</p>
-        <div className="flex gap-1.5">
+        <div className="flex gap-1" aria-label={`${lives} av ${maxLives} liv`}>
           {Array.from({ length: maxLives }).map((_, i) => (
             <div
               key={i}
-              className={`h-2.5 w-6 rounded-sm transition-colors ${
-                i < lives ? "bg-danger" : "bg-paper-bright/15"
+              className={`flex h-6 w-6 items-center justify-center rounded-full text-sm transition-colors ${
+                i < lives
+                  ? "bg-danger text-white"
+                  : "bg-paper-bright/15 text-paper-bright/30"
               }`}
               aria-hidden
-            />
+            >
+              ♥
+            </div>
           ))}
         </div>
       </div>

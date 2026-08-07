@@ -15,10 +15,10 @@ import {
 } from "@/lib/accounting-data"
 import {
   HighScoreEntry,
-  addHighScore,
+  fetchLeaderboard,
   getBestScore,
-  loadLeaderboard,
   qualifiesForLeaderboard,
+  submitHighScore,
 } from "@/lib/highscore"
 
 interface FallingTransaction extends Transaction {
@@ -69,6 +69,9 @@ export function AccountingGame() {
   const [showHints, setShowHints] = useState(true)
   const [playerName, setPlayerName] = useState("")
   const [scoreSaved, setScoreSaved] = useState(false)
+  const [isSavingScore, setIsSavingScore] = useState(false)
+  const [leaderboardError, setLeaderboardError] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   const [fallingTransactions, setFallingTransactions] = useState<FallingTransaction[]>([])
   const [inputValue, setInputValue] = useState("")
@@ -98,7 +101,27 @@ export function AccountingGame() {
   }, [difficulty, level])
 
   useEffect(() => {
-    setLeaderboard(loadLeaderboard())
+    let cancelled = false
+
+    async function load() {
+      try {
+        const entries = await fetchLeaderboard()
+        if (!cancelled) {
+          setLeaderboard(entries)
+          setLeaderboardError(null)
+        }
+      } catch {
+        if (!cancelled) {
+          setLeaderboard([])
+          setLeaderboardError("Kunne ikke laste topplisten")
+        }
+      }
+    }
+
+    void load()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   useEffect(() => {
@@ -268,6 +291,7 @@ export function AccountingGame() {
     setLastResult(null)
     setInputValue("")
     setScoreSaved(false)
+    setSaveError(null)
     isFirstFrameRef.current = true
     spawnTimerRef.current = DIFFICULTY_LEVELS[difficulty].spawnInterval - 500
   }
@@ -277,17 +301,25 @@ export function AccountingGame() {
     if (gameState === "paused") isFirstFrameRef.current = true
   }
 
-  const saveScore = () => {
-    if (scoreSaved || !qualifiesForLeaderboard(leaderboard, score)) return
+  const saveScore = async () => {
+    if (scoreSaved || isSavingScore || !qualifiesForLeaderboard(leaderboard, score)) return
     const name = playerName.trim() || "Anonym"
-    const next = addHighScore(leaderboard, {
-      name: name.slice(0, 16),
-      score,
-      level,
-      difficulty,
-    })
-    setLeaderboard(next)
-    setScoreSaved(true)
+    setIsSavingScore(true)
+    setSaveError(null)
+    try {
+      const next = await submitHighScore({
+        name: name.slice(0, 16),
+        score,
+        level,
+        difficulty,
+      })
+      setLeaderboard(next)
+      setScoreSaved(true)
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Kunne ikke lagre rekorden")
+    } finally {
+      setIsSavingScore(false)
+    }
   }
 
   const activeTransactionId = fallingTransactions
@@ -376,9 +408,11 @@ export function AccountingGame() {
 
               <div className="border-t border-ink/8 bg-ink px-6 py-8 text-paper-bright md:border-l md:border-t-0 md:px-8">
                 <h3 className="font-display text-lg font-bold">Toppliste</h3>
-                <p className="mt-1 text-xs text-paper-bright/45">Lagres lokalt i nettleseren</p>
+                <p className="mt-1 text-xs text-paper-bright/45">Delt på tvers av alle spillere</p>
 
-                {leaderboard.length === 0 ? (
+                {leaderboardError ? (
+                  <p className="mt-8 text-sm text-danger">{leaderboardError}</p>
+                ) : leaderboard.length === 0 ? (
                   <p className="mt-8 text-sm text-paper-bright/50">
                     Ingen rekorder ennå. Vær først ute!
                   </p>
@@ -537,22 +571,25 @@ export function AccountingGame() {
                     placeholder="Ditt navn"
                     className="flex-1 rounded-lg border border-ink/15 bg-paper-bright px-3 py-2 text-ink focus:outline-none focus:ring-2 focus:ring-stamp"
                     onKeyDown={(e) => {
-                      if (e.key === "Enter") saveScore()
+                      if (e.key === "Enter") void saveScore()
                     }}
+                    disabled={isSavingScore}
                   />
                   <button
-                    onClick={saveScore}
-                    className="rounded-lg bg-stamp px-4 py-2 font-semibold text-accent-foreground hover:bg-stamp-soft hover:text-ink"
+                    onClick={() => void saveScore()}
+                    disabled={isSavingScore}
+                    className="rounded-lg bg-stamp px-4 py-2 font-semibold text-accent-foreground hover:bg-stamp-soft hover:text-ink disabled:opacity-60"
                   >
-                    Lagre
+                    {isSavingScore ? "Lagrer…" : "Lagre"}
                   </button>
                 </div>
+                {saveError && <p className="mt-2 text-sm text-danger">{saveError}</p>}
               </div>
             )}
 
             {scoreSaved && (
               <div className="mx-auto mt-6 max-w-sm rounded-xl bg-moss/10 px-4 py-3 text-moss">
-                Rekorden er lagret!
+                Rekorden er lagret på den delte topplisten!
               </div>
             )}
 

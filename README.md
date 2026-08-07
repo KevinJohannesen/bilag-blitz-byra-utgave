@@ -5,7 +5,7 @@
 
 **Et norsk regnskapsspill der bilag faller ned og du bokfører dem i sanntid.**
 
-Byrå-utgaven har oppdatert NS 4102-kontoplan, lokal toppliste, polert UI og spawn-baner som hindrer overlappende bilag.
+Byrå-utgaven har oppdatert NS 4102-kontoplan, delt toppliste (Neon), polert UI og spawn-baner som hindrer overlappende bilag.
 
 ![Next.js](https://img.shields.io/badge/Next.js-16.2-black?logo=next.js)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react)
@@ -13,7 +13,7 @@ Byrå-utgaven har oppdatert NS 4102-kontoplan, lokal toppliste, polert UI og spa
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind-v4-38BDF8?logo=tailwindcss)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
-**[▶ Spill nå på bilag-blitz.vercel.app](https://bilag-blitz.vercel.app/)**
+**[▶ Spill nå på bilag-blitz-byra-utgave.vercel.app](https://bilag-blitz-byra-utgave.vercel.app/)**
 
 </div>
 
@@ -78,6 +78,7 @@ Et innebygd **kontooversiktspanel** kan aktiveres for nybegynnere.
 - **[React 19](https://react.dev/)** — spillogikk med hooks og `requestAnimationFrame`-gameloop
 - **[TypeScript 5](https://www.typescriptlang.org/)** — full typesikkerhet
 - **[Tailwind CSS v4](https://tailwindcss.com/)** — utility-first styling
+- **[Neon](https://neon.tech/)** + **[Drizzle ORM](https://orm.drizzle.team/)** — delt toppliste i Postgres
 - **[Shadcn UI](https://ui.shadcn.com/)** — komponentbibliotek (new-york stil)
 - **[Radix UI](https://www.radix-ui.com/)** — tilgjengelige UI-primitiver
 - **[Lucide React](https://lucide.dev/)** — ikoner
@@ -90,13 +91,21 @@ Et innebygd **kontooversiktspanel** kan aktiveres for nybegynnere.
 
 - Node.js 20+
 - pnpm
+- En Neon Postgres-database (`DATABASE_URL`)
 
 ### Installasjon
 
 ```bash
-git clone https://github.com/ditt-brukernavn/bilag-blitz.git
-cd bilag-blitz
+git clone https://github.com/KevinJohannesen/bilag-blitz-byra-utgave.git
+cd bilag-blitz-byra-utgave
 pnpm install
+cp .env.example .env.local
+```
+
+Sett `DATABASE_URL` i `.env.local`, deretter opprett tabellen:
+
+```bash
+pnpm db:push
 ```
 
 ### Kjør lokalt
@@ -114,32 +123,39 @@ pnpm build
 pnpm start
 ```
 
+### Deploy (Vercel)
+
+1. Opprett et Neon-prosjekt og kopier connection string
+2. Importer repoet i Vercel (eller `npx vercel`)
+3. Sett `DATABASE_URL` under Project Settings → Environment Variables
+4. Kjør `pnpm db:push` mot samme database (lokalt med prod-URL, eller Neon SQL Editor)
+5. Deploy
+
 ---
 
 ## Prosjektstruktur
 
 ```
-bilag-blitz/
+bilag-blitz-byra-utgave/
 ├── app/
-│   ├── icon.png              # App-ikon og favicon
-│   ├── layout.tsx            # Root layout med metadata
-│   ├── page.tsx              # Hjemmeside
-│   └── globals.css           # Globale stiler og CSS-variabler
+│   ├── api/leaderboard/      # GET/POST delt toppliste
+│   ├── icon.png
+│   ├── layout.tsx
+│   ├── page.tsx
+│   └── globals.css
 ├── components/
 │   ├── game/
-│   │   ├── accounting-game.tsx   # Hoved-spillkomponent og gameloop
-│   │   ├── falling-receipt.tsx   # Animert bilag-komponent
-│   │   ├── account-panel.tsx     # Inndatafelt og kontooversikt
-│   │   └── game-stats.tsx        # Poeng, liv, streak og tid
-│   ├── ui/                       # Shadcn UI-komponenter
-│   └── theme-provider.tsx        # Dark mode-støtte
-├── hooks/
-│   ├── use-mobile.ts         # Responsiv breakpoint-hook
-│   └── use-toast.ts          # Toast-notifikasjoner
-└── lib/
-    ├── accounting-data.ts    # NS 4102-kontoplan og transaksjonsdata
-    ├── highscore.ts          # Lokal toppliste (localStorage)
-    └── utils.ts              # Tailwind cn()-hjelper
+│   │   ├── accounting-game.tsx
+│   │   ├── falling-receipt.tsx
+│   │   ├── account-panel.tsx
+│   │   └── game-stats.tsx
+│   └── ui/
+├── lib/
+│   ├── db/                   # Drizzle + Neon
+│   ├── accounting-data.ts
+│   ├── highscore.ts          # Toppliste-klient + validering
+│   └── utils.ts
+└── drizzle.config.ts
 ```
 
 ---

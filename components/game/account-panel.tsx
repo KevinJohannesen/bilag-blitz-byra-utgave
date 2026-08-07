@@ -8,6 +8,10 @@ export interface LastResult {
   account: string
   expected: string
   pointsEarned?: number
+  /** Shown on wrong answer / miss */
+  expectedName?: string
+  nearMissTip?: string | null
+  reason?: "wrong" | "miss"
 }
 
 interface AccountInputProps {
@@ -16,7 +20,9 @@ interface AccountInputProps {
   onSubmit: () => void
   lastResult: LastResult | null
   activeHint?: { description: string; company: string } | null
+  softHint?: string | null
   focusToken?: number
+  submitLabel?: string
 }
 
 export function AccountInput({
@@ -25,7 +31,9 @@ export function AccountInput({
   onSubmit,
   lastResult,
   activeHint,
+  softHint,
   focusToken = 0,
+  submitLabel = "Bokfør",
 }: AccountInputProps) {
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -44,6 +52,12 @@ export function AccountInput({
           <span className="text-paper-bright/45">Bokfør: </span>
           <span className="font-medium text-stamp-soft">{activeHint.description}</span>
           <span className="text-paper-bright/40"> · {activeHint.company}</span>
+        </p>
+      )}
+
+      {softHint && !lastResult && (
+        <p className="mb-3 animate-result-pop rounded-lg border border-stamp/30 bg-stamp/10 px-3 py-2 text-xs text-stamp-soft">
+          {softHint}
         </p>
       )}
 
@@ -66,7 +80,7 @@ export function AccountInput({
           onClick={onSubmit}
           className="rounded-lg bg-stamp px-6 py-3 font-display font-bold text-accent-foreground transition-colors hover:bg-stamp-soft hover:text-ink"
         >
-          Bokfør
+          {submitLabel}
         </button>
       </div>
 
@@ -89,14 +103,27 @@ export function AccountInput({
             </span>
           ) : (
             <div>
-              <span className="block font-bold text-red-100">−1 liv — feil kontokode</span>
+              <span className="block font-bold text-red-100">
+                {lastResult.reason === "miss"
+                  ? "−1 liv — bilaget passerte linjen"
+                  : "−1 liv — feil kontokode"}
+              </span>
               <span className="mt-1 block text-paper-bright/80">
-                Du skrev: <span className="font-mono">{lastResult.account}</span>
-                {" · "}
+                {lastResult.account ? (
+                  <>
+                    Du skrev: <span className="font-mono">{lastResult.account}</span>
+                    {" · "}
+                  </>
+                ) : null}
                 Riktig:{" "}
                 <span className="font-mono text-stamp-soft">{lastResult.expected}</span> (
-                {ACCOUNTS.find((a) => a.code === lastResult.expected)?.name})
+                {lastResult.expectedName ??
+                  ACCOUNTS.find((a) => a.code === lastResult.expected)?.name}
+                )
               </span>
+              {lastResult.nearMissTip && (
+                <span className="mt-1.5 block text-xs text-stamp-soft/90">{lastResult.nearMissTip}</span>
+              )}
             </div>
           )}
         </div>

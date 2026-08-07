@@ -69,6 +69,15 @@ describe("qualifiesForLeaderboard", () => {
     expect(qualifiesForLeaderboard(sorted, lowest)).toBe(false)
     expect(qualifiesForLeaderboard(sorted, lowest + 1)).toBe(true)
   })
+
+  it("scopes qualification to difficulty when provided", () => {
+    const board = Array.from({ length: MAX_ENTRIES }, (_, i) =>
+      entry({ score: 1000 + i, difficulty: "easy" })
+    )
+    board.push(entry({ score: 50, difficulty: "expert" }))
+    expect(qualifiesForLeaderboard(board, 51, "expert")).toBe(true)
+    expect(qualifiesForLeaderboard(board, 999, "easy")).toBe(false)
+  })
 })
 
 describe("isValidDifficulty", () => {

@@ -20,7 +20,8 @@ export function FallingReceipt({
   const getReceiptStyle = () => {
     if (isCorrect === true) return "ring-2 ring-moss bg-emerald-50/90"
     if (isCorrect === false) return "ring-2 ring-danger bg-red-50/90"
-    if (isActive) return "ring-2 ring-stamp bg-[#fff8ef] shadow-[0_0_0_4px_rgba(196,92,38,0.15)]"
+    if (isActive)
+      return "animate-active-receipt ring-[3px] ring-stamp bg-[#fff8ef] shadow-[0_0_0_6px_rgba(196,92,38,0.22)] scale-[1.02]"
     return "receipt-paper"
   }
 

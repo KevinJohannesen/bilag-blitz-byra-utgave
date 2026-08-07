@@ -60,8 +60,10 @@ export function FallingReceipt({
           </div>
 
           {isActive && isCorrect === null && (
-            <div className="mt-2 rounded bg-stamp/10 px-2 py-1 text-center">
-              <p className="text-[10px] font-medium uppercase tracking-wider text-stamp">Aktivt bilag</p>
+            <div className="mt-2 animate-pulse-stamp rounded bg-stamp px-2 py-1.5 text-center">
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-accent-foreground">
+                Aktivt bilag
+              </p>
             </div>
           )}
         </div>

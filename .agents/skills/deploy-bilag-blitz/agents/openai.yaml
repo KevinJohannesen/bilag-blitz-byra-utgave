@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deploy Bilag Blitz"
+  short_description: "Ship to Vercel with Neon leaderboard"
+  default_prompt: "Use $deploy-bilag-blitz to deploy production and sync DATABASE_URL."

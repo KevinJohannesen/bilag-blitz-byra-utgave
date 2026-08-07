@@ -1,6 +1,7 @@
 "use client"
 
 import { Transaction } from "@/lib/accounting-data"
+import { dangerProximity } from "@/lib/game-juice"
 
 interface FallingReceiptProps {
   transaction: Transaction
@@ -8,6 +9,7 @@ interface FallingReceiptProps {
   positionX: number
   isCorrect: boolean | null
   isActive: boolean
+  gameHeight?: number
 }
 
 export function FallingReceipt({
@@ -16,10 +18,16 @@ export function FallingReceipt({
   positionX,
   isCorrect,
   isActive,
+  gameHeight = 520,
 }: FallingReceiptProps) {
+  const danger =
+    isActive && isCorrect === null ? dangerProximity(positionY, gameHeight) : 0
+
   const getReceiptStyle = () => {
-    if (isCorrect === true) return "ring-2 ring-moss bg-emerald-50/90"
+    if (isCorrect === true) return "ring-2 ring-moss bg-emerald-50/90 animate-result-pop"
     if (isCorrect === false) return "ring-2 ring-danger bg-red-50/90"
+    if (isActive && danger > 0.65)
+      return "animate-active-receipt ring-[3px] ring-danger bg-[#fff5f3] shadow-[0_0_0_6px_rgba(194,59,59,0.25)] scale-[1.03]"
     if (isActive)
       return "animate-active-receipt ring-[3px] ring-stamp bg-[#fff8ef] shadow-[0_0_0_6px_rgba(196,92,38,0.22)] scale-[1.02]"
     return "receipt-paper"
@@ -61,9 +69,13 @@ export function FallingReceipt({
           </div>
 
           {isActive && isCorrect === null && (
-            <div className="mt-2 animate-pulse-stamp rounded bg-stamp px-2 py-1.5 text-center">
+            <div
+              className={`mt-2 animate-pulse-stamp rounded px-2 py-1.5 text-center ${
+                danger > 0.65 ? "bg-danger" : "bg-stamp"
+              }`}
+            >
               <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-accent-foreground">
-                Aktivt bilag
+                {danger > 0.65 ? "Haster!" : "Aktivt bilag"}
               </p>
             </div>
           )}
@@ -76,6 +88,12 @@ export function FallingReceipt({
               "polygon(0% 0%, 5% 50%, 10% 0%, 15% 50%, 20% 0%, 25% 50%, 30% 0%, 35% 50%, 40% 0%, 45% 50%, 50% 0%, 55% 50%, 60% 0%, 65% 50%, 70% 0%, 75% 50%, 80% 0%, 85% 50%, 90% 0%, 95% 50%, 100% 0%)",
           }}
         />
+
+        {isCorrect === true && (
+          <div className="pointer-events-none absolute -right-3 top-4 rotate-[-14deg] rounded border-2 border-moss px-2 py-0.5 font-display text-[10px] font-extrabold tracking-wider text-moss">
+            OK
+          </div>
+        )}
       </div>
 
       {isCorrect !== null && (

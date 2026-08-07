@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { AccountHints, AccountInput, type LastResult } from "./account-panel"
+import { StampBurst } from "./stamp-burst"
 import {
   ACCOUNT_CLASS_FILTERS,
   ACCOUNTS,
@@ -86,11 +87,13 @@ export function PracticeMode({ onExit, showHints }: PracticeModeProps) {
   const [revealed, setRevealed] = useState(false)
   const [lastResult, setLastResult] = useState<LastResult | null>(null)
   const [stats, setStats] = useState({ correct: 0, attempts: 0 })
+  const [showStamp, setShowStamp] = useState(false)
 
   const loadNext = (nextFilter: PracticeFilter = filter) => {
     setInputValue("")
     setRevealed(false)
     setLastResult(null)
+    setShowStamp(false)
     setCurrent(pickNext(nextFilter, feilbok))
     setFocusToken((t) => t + 1)
   }
@@ -115,6 +118,10 @@ export function PracticeMode({ onExit, showHints }: PracticeModeProps) {
       reason: "wrong",
     })
     setRevealed(true)
+    if (isCorrect) {
+      setShowStamp(true)
+      window.setTimeout(() => setShowStamp(false), 750)
+    }
   }
 
   return (
@@ -180,7 +187,7 @@ export function PracticeMode({ onExit, showHints }: PracticeModeProps) {
       ) : (
         <div className={`grid gap-3 ${showHints ? "md:grid-cols-[1fr_280px]" : ""}`}>
           <div className="space-y-3">
-            <div className="receipt-paper animate-brand-rise rounded-2xl border border-ink/10 p-6 shadow-[0_16px_40px_rgba(15,31,28,0.1)]">
+            <div className="receipt-paper relative animate-brand-rise overflow-hidden rounded-2xl border border-ink/10 p-6 shadow-[0_16px_40px_rgba(15,31,28,0.1)]">
               <p className="font-mono text-[11px] tracking-wide text-ink/45">{current.date}</p>
               <p className="mt-1 font-semibold text-ink">{current.company}</p>
               <p className="mt-4 text-lg leading-snug text-ink/80">{current.description}</p>
@@ -190,6 +197,7 @@ export function PracticeMode({ onExit, showHints }: PracticeModeProps) {
                   kr {current.amount.toLocaleString("nb-NO")}
                 </span>
               </div>
+              <StampBurst show={showStamp} label="LÆRT" />
             </div>
 
             <AccountInput

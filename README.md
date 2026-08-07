@@ -5,7 +5,7 @@
 
 **Et norsk regnskapsspill der bilag faller ned og du bokfører dem i sanntid.**
 
-Byrå-utgaven har oppdatert NS 4102-kontoplan, delt toppliste (Neon), polert UI og spawn-baner som hindrer overlappende bilag.
+Byrå-utgaven har utvidet NS 4102-kontoplan, **Blitz** + **Øvingsmodus**, feilbok, vanskelighetsstyrt bilagutvalg og delt toppliste per grad (Neon).
 
 ![Next.js](https://img.shields.io/badge/Next.js-16.2-black?logo=next.js)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react)
@@ -23,7 +23,11 @@ Byrå-utgaven har oppdatert NS 4102-kontoplan, delt toppliste (Neon), polert UI 
 
 Bilag Blitz er et nettleserbasert arkadespill der du spiller som bokfører under press. Bilag — kvitteringer og fakturaer fra norske bedrifter — faller ned fra toppen av skjermen. Oppgaven din er å taste inn riktig kontokode fra **Norsk Standard Kontoplan (NS 4102)** før bilaget treffer bunnen.
 
-Jo raskere du svarer, jo flere poeng får du. Feil svar eller bilag som faller forbi den røde linjen koster deg et liv. Klarer du å holde hodet kaldt og bokføre riktig under press?
+Jo raskere du svarer, jo flere poeng får du. Feil svar eller bilag som faller forbi den røde linjen koster deg et liv — og legges i **feilboken** så du kan øve etterpå.
+
+Kontoplanen er **byrå-generell NS 4102** (firesiffer): samme koder uansett hvilken klient du jobber med.
+
+**Øvingsmodus** lar deg lære uten fallende bilag — med forklaring etter hvert svar, filter på kontoklasse, eller «Mine feil» fra siste Blitz-runde.
 
 ---
 
@@ -46,12 +50,14 @@ Jo raskere du svarer, jo flere poeng får du. Feil svar eller bilag som faller f
 
 ## Vanskelighetsgrader
 
-| Grad      | Fallhastighet | Mellomrom | Liv | Poeng/riktig | Tidsbonus-grense |
-| --------- | ------------- | --------- | --- | ------------ | ---------------- |
-| Lett      | 0.5 px/frame  | 5 sek     | 5   | 100          | 8 sek            |
-| Medium    | 0.8 px/frame  | 3.5 sek   | 4   | 150          | 6 sek            |
-| Vanskelig | 1.2 px/frame  | 2.5 sek   | 3   | 200          | 4 sek            |
-| Ekspert   | 1.6 px/frame  | 2 sek     | 2   | 300          | 3 sek            |
+| Grad      | Fallhastighet | Mellomrom | Liv | Poeng/riktig | Tidsbonus-grense | Bilaginnhold                          |
+| --------- | ------------- | --------- | --- | ------------ | ---------------- | ------------------------------------- |
+| Lett      | 0.5 px/frame  | 5 sek     | 5   | 100          | 8 sek            | Daglige kontorkostnader, bank         |
+| Medium    | 0.8 px/frame  | 3.5 sek   | 4   | 150          | 6 sek            | + inntekter, fordring/gjeld, vare/lønn |
+| Vanskelig | 1.2 px/frame  | 2.5 sek   | 3   | 200          | 4 sek            | + MVA, periodisering, aktivering       |
+| Ekspert   | 1.6 px/frame  | 2 sek     | 2   | 300          | 3 sek            | + fine skillet (MVA/AGA/varekost)      |
+
+**Topplisten** er per vanskelighetsgrad, så Lett-rekorder ikke overskygger Ekspert.
 
 ---
 
@@ -59,16 +65,17 @@ Jo raskere du svarer, jo flere poeng får du. Feil svar eller bilag som faller f
 
 Spillet er basert på **NS 4102 — Norsk Standard Kontoplan**. Du vil møte kontoer fra alle hovedklassene:
 
-| Klasse | Kategori                   | Eksempler                                                              |
-| ------ | -------------------------- | ---------------------------------------------------------------------- |
-| 1xxx   | Eiendeler                  | 1200 Maskiner, 1500 Kundefordringer, 1920 Bankinnskudd                 |
-| 2xxx   | Gjeld & egenkapital        | 2400 Leverandørgjeld, 2600 Skattetrekk, 2701/2711 MVA, 2770 Skyldig AGA |
-| 3xxx   | Inntekter                  | 3000 Salgsinntekt varer, 3100 Salgsinntekt tjenester                   |
-| 4xxx   | Varekostnad                | 4000 Varekostnad, 4300 Innkjøp varer                                   |
-| 5xxx   | Lønnskostnader             | 5000 Lønn til ansatte, 5400 Arbeidsgiveravgift                         |
-| 6–7xxx | Drifts- og andre kostnader | 6300 Leie lokaler, 6700 Regnskap, 7350 Reise, 7770 Bankgebyr           |
+| Klasse | Kategori                   | Eksempler                                                                          |
+| ------ | -------------------------- | ---------------------------------------------------------------------------------- |
+| 1xxx   | Eiendeler                  | 1200 Maskiner, 1400 Varelager, 1500 Fordringer, 1700 Forskudd, 1920 Bank           |
+| 2xxx   | Gjeld & egenkapital        | 2400 Leverandør, 2600 Skattetrekk, 2701/2711/2740 MVA, 2770 AGA, 2900 Påløpt       |
+| 3xxx   | Inntekter                  | 3000 Salgsinntekt varer, 3100 Salgsinntekt tjenester                               |
+| 4xxx   | Varekostnad                | 4000 Varekostnad, 4300 Innkjøp varer                                               |
+| 5xxx   | Lønnskostnader             | 5000 Lønn til ansatte, 5400 Arbeidsgiveravgift                                     |
+| 6–7xxx | Drifts- og andre kostnader | 6300 Leie, 6340 Strøm, 6780 SaaS, 7300 Annonse, 7350 Reise, 7360 Representasjon    |
+| 8xxx   | Finans                     | 8050 Renteinntekt, 8150 Rentekostnad                                               |
 
-Et innebygd **kontooversiktspanel** kan aktiveres for nybegynnere.
+Et innebygd **kontooversiktspanel** og myke tips kan aktiveres for nybegynnere.
 
 ---
 
@@ -164,13 +171,15 @@ bilag-blitz-byra-utgave/
 ├── components/
 │   ├── game/
 │   │   ├── accounting-game.tsx
+│   │   ├── practice-mode.tsx
 │   │   ├── falling-receipt.tsx
 │   │   ├── account-panel.tsx
 │   │   └── game-stats.tsx
 │   └── ui/
 ├── lib/
 │   ├── db/                   # Drizzle + Neon
-│   ├── accounting-data.ts
+│   ├── accounting-data.ts    # NS 4102 + tiered bilag
+│   ├── feilbok.ts            # Session mistake log
 │   ├── highscore.ts          # Toppliste-klient + validering
 │   ├── spawn-lanes.ts
 │   └── utils.ts

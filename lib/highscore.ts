@@ -17,10 +17,17 @@ export function getBestScore(entries: HighScoreEntry[], difficulty?: string): nu
   return pool.reduce((best, e) => Math.max(best, e.score), 0)
 }
 
-export function qualifiesForLeaderboard(entries: HighScoreEntry[], score: number): boolean {
+export function qualifiesForLeaderboard(
+  entries: HighScoreEntry[],
+  score: number,
+  difficulty?: string
+): boolean {
   if (score <= 0) return false
-  if (entries.length < MAX_ENTRIES) return true
-  const lowest = entries[entries.length - 1]?.score ?? 0
+  const pool = difficulty
+    ? sortLeaderboard(entries.filter((e) => e.difficulty === difficulty))
+    : sortLeaderboard(entries)
+  if (pool.length < MAX_ENTRIES) return true
+  const lowest = pool[pool.length - 1]?.score ?? 0
   return score > lowest
 }
 
@@ -28,12 +35,20 @@ export function sortLeaderboard(entries: HighScoreEntry[]): HighScoreEntry[] {
   return [...entries].sort((a, b) => b.score - a.score).slice(0, MAX_ENTRIES)
 }
 
+export function filterLeaderboardByDifficulty(
+  entries: HighScoreEntry[],
+  difficulty: string
+): HighScoreEntry[] {
+  return sortLeaderboard(entries.filter((e) => e.difficulty === difficulty))
+}
+
 export function isValidDifficulty(value: string): boolean {
   return VALID_DIFFICULTIES.has(value)
 }
 
-export async function fetchLeaderboard(): Promise<HighScoreEntry[]> {
-  const res = await fetch("/api/leaderboard", { cache: "no-store" })
+export async function fetchLeaderboard(difficulty?: string): Promise<HighScoreEntry[]> {
+  const params = difficulty ? `?difficulty=${encodeURIComponent(difficulty)}` : ""
+  const res = await fetch(`/api/leaderboard${params}`, { cache: "no-store" })
   if (!res.ok) {
     throw new Error("Kunne ikke hente topplisten")
   }

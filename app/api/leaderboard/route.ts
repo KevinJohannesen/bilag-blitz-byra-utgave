@@ -1,4 +1,4 @@
-import { desc } from "drizzle-orm"
+import { desc, eq } from "drizzle-orm"
 import { NextResponse } from "next/server"
 
 import { getDb } from "@/lib/db"
@@ -6,6 +6,7 @@ import { leaderboardScores } from "@/lib/db/schema"
 import {
   HighScoreEntry,
   MAX_ENTRIES,
+  isValidDifficulty,
   qualifiesForLeaderboard,
   sortLeaderboard,
 } from "@/lib/highscore"
@@ -24,27 +25,37 @@ function toEntry(row: typeof leaderboardScores.$inferSelect): HighScoreEntry {
   }
 }
 
-async function getTopEntries(): Promise<HighScoreEntry[]> {
+async function getTopEntries(difficulty?: string): Promise<HighScoreEntry[]> {
   const db = getDb()
-  const rows = await db
-    .select()
-    .from(leaderboardScores)
-    .orderBy(desc(leaderboardScores.score), desc(leaderboardScores.createdAt))
-    .limit(MAX_ENTRIES)
+  const rows = difficulty
+    ? await db
+        .select()
+        .from(leaderboardScores)
+        .where(eq(leaderboardScores.difficulty, difficulty))
+        .orderBy(desc(leaderboardScores.score), desc(leaderboardScores.createdAt))
+        .limit(MAX_ENTRIES)
+    : await db
+        .select()
+        .from(leaderboardScores)
+        .orderBy(desc(leaderboardScores.score), desc(leaderboardScores.createdAt))
+        .limit(MAX_ENTRIES)
 
   return sortLeaderboard(rows.map(toEntry))
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const entries = await getTopEntries()
-    return NextResponse.json({ entries })
+    const { searchParams } = new URL(request.url)
+    const difficulty = searchParams.get("difficulty") ?? undefined
+    if (difficulty && !isValidDifficulty(difficulty)) {
+      return NextResponse.json({ error: "Ugyldig vanskelighetsgrad" }, { status: 400 })
+    }
+
+    const entries = await getTopEntries(difficulty)
+    return NextResponse.json({ entries, difficulty: difficulty ?? null })
   } catch (error) {
     console.error("GET /api/leaderboard failed", error)
-    return NextResponse.json(
-      { error: "Kunne ikke hente topplisten" },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: "Kunne ikke hente topplisten" }, { status: 500 })
   }
 }
 
@@ -57,8 +68,8 @@ export async function POST(request: Request) {
     }
 
     const { name, score, level, difficulty } = parsed
-    const current = await getTopEntries()
-    if (!qualifiesForLeaderboard(current, score)) {
+    const current = await getTopEntries(difficulty)
+    if (!qualifiesForLeaderboard(current, score, difficulty)) {
       return NextResponse.json(
         { error: "Poengsummen kvalifiserer ikke til topplisten", entries: current },
         { status: 409 }
@@ -73,13 +84,11 @@ export async function POST(request: Request) {
       difficulty,
     })
 
-    const entries = await getTopEntries()
-    return NextResponse.json({ entries }, { status: 201 })
+    // Keep response scoped to the same difficulty board the player competed on
+    const entries = await getTopEntries(difficulty)
+    return NextResponse.json({ entries, difficulty }, { status: 201 })
   } catch (error) {
     console.error("POST /api/leaderboard failed", error)
-    return NextResponse.json(
-      { error: "Kunne ikke lagre rekorden" },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: "Kunne ikke lagre rekorden" }, { status: 500 })
   }
 }

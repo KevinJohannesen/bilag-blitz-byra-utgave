@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import { FallingReceipt } from "./falling-receipt"
-import { AccountHints, AccountInput } from "./account-panel"
+import { AccountHints, AccountInput, type LastResult } from "./account-panel"
 import { GameStats } from "./game-stats"
+import { PracticeMode } from "./practice-mode"
 import {
   generateTransaction,
   Transaction,
@@ -11,6 +12,8 @@ import {
   DIFFICULTY_LABELS,
   DifficultySettings,
   SPAWN_LANES,
+  getNearMissTip,
+  getSoftHint,
 } from "@/lib/accounting-data"
 import {
   HighScoreEntry,
@@ -20,6 +23,7 @@ import {
   submitHighScore,
 } from "@/lib/highscore"
 import { pickSpawnLane } from "@/lib/spawn-lanes"
+import { saveFeilbok, type FeilbokEntry } from "@/lib/feilbok"
 
 interface FallingTransaction extends Transaction {
   positionY: number
@@ -29,7 +33,7 @@ interface FallingTransaction extends Transaction {
   spawnTime: number
 }
 
-type GameState = "menu" | "playing" | "paused" | "gameover"
+type GameState = "menu" | "playing" | "paused" | "gameover" | "practice"
 
 const GAME_HEIGHT = 520
 const RECEIPT_HEIGHT = 160
@@ -55,12 +59,10 @@ export function AccountingGame() {
   const [fallingTransactions, setFallingTransactions] = useState<FallingTransaction[]>([])
   const [inputValue, setInputValue] = useState("")
   const [focusToken, setFocusToken] = useState(0)
-  const [lastResult, setLastResult] = useState<{
-    correct: boolean
-    account: string
-    expected: string
-    pointsEarned?: number
-  } | null>(null)
+  const [lastResult, setLastResult] = useState<LastResult | null>(null)
+  const [softHint, setSoftHint] = useState<string | null>(null)
+  const [sessionMistakes, setSessionMistakes] = useState<FeilbokEntry[]>([])
+  const [soundEnabled, setSoundEnabled] = useState(false)
 
   const gameLoopRef = useRef<number | null>(null)
   const lastTimeRef = useRef<number>(0)
@@ -69,13 +71,51 @@ export function AccountingGame() {
   const fallingRef = useRef<FallingTransaction[]>([])
   const livesRef = useRef(lives)
   const penalizedMissIdsRef = useRef<Set<string>>(new Set())
+  const sessionMistakesRef = useRef<FeilbokEntry[]>([])
+  const audioCtxRef = useRef<AudioContext | null>(null)
 
-  const highScore = getBestScore(leaderboard)
   const difficultyHighScore = getBestScore(leaderboard, difficulty)
 
   useEffect(() => {
     livesRef.current = lives
   }, [lives])
+
+  useEffect(() => {
+    sessionMistakesRef.current = sessionMistakes
+  }, [sessionMistakes])
+
+  const playTone = useCallback(
+    (freq: number, duration = 0.08, type: OscillatorType = "sine") => {
+      if (!soundEnabled || typeof window === "undefined") return
+      try {
+        const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+        if (!Ctx) return
+        if (!audioCtxRef.current) audioCtxRef.current = new Ctx()
+        const ctx = audioCtxRef.current
+        const osc = ctx.createOscillator()
+        const gain = ctx.createGain()
+        osc.type = type
+        osc.frequency.value = freq
+        gain.gain.value = 0.04
+        osc.connect(gain)
+        gain.connect(ctx.destination)
+        osc.start()
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration)
+        osc.stop(ctx.currentTime + duration)
+      } catch {
+        // ignore audio failures
+      }
+    },
+    [soundEnabled]
+  )
+
+  const logMistake = useCallback((entry: FeilbokEntry) => {
+    setSessionMistakes((prev) => {
+      const next = [...prev, entry].slice(-40)
+      sessionMistakesRef.current = next
+      return next
+    })
+  }, [])
 
   const loseLives = useCallback((amount: number) => {
     if (amount <= 0) return
@@ -83,7 +123,10 @@ export function AccountingGame() {
     livesRef.current = next
     setLives(next)
     setStreak(0)
-    if (next <= 0) setGameState("gameover")
+    if (next <= 0) {
+      saveFeilbok(sessionMistakesRef.current)
+      setGameState("gameover")
+    }
   }, [])
 
   const getSettings = useCallback((): DifficultySettings => {
@@ -101,7 +144,7 @@ export function AccountingGame() {
 
     async function load() {
       try {
-        const entries = await fetchLeaderboard()
+        const entries = await fetchLeaderboard(difficulty)
         if (!cancelled) {
           setLeaderboard(entries)
           setLeaderboardError(null)
@@ -118,7 +161,7 @@ export function AccountingGame() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [difficulty])
 
   useEffect(() => {
     fallingRef.current = fallingTransactions
@@ -135,6 +178,34 @@ export function AccountingGame() {
     return () => clearInterval(timer)
   }, [gameState])
 
+  // Soft hint after ~40% of bonus-time window (hints on only)
+  useEffect(() => {
+    if (gameState !== "playing" || !showHints) {
+      setSoftHint(null)
+      return
+    }
+    const active = fallingTransactions
+      .filter((tx) => tx.isCorrect === null)
+      .sort((a, b) => b.positionY - a.positionY)[0]
+    if (!active) {
+      setSoftHint(null)
+      return
+    }
+
+    const thresholdMs = DIFFICULTY_LEVELS[difficulty].bonusTimeThreshold * 1000 * 0.4
+    const elapsed = Date.now() - active.spawnTime
+    if (elapsed >= thresholdMs) {
+      setSoftHint(getSoftHint(active))
+      return
+    }
+
+    const remaining = thresholdMs - elapsed
+    const timer = window.setTimeout(() => {
+      setSoftHint(getSoftHint(active))
+    }, remaining)
+    return () => clearTimeout(timer)
+  }, [fallingTransactions, gameState, showHints, difficulty])
+
   const spawnTransaction = useCallback(() => {
     const active = fallingRef.current.filter((tx) => tx.isCorrect === null)
     if (active.length >= MAX_ACTIVE_RECEIPTS) return false
@@ -142,7 +213,7 @@ export function AccountingGame() {
     const lane = pickSpawnLane(active, { blockY: LANE_BLOCK_Y })
     if (lane === null) return false
 
-    const tx = generateTransaction()
+    const tx = generateTransaction(difficulty)
     const newTx: FallingTransaction = {
       ...tx,
       positionY: -RECEIPT_HEIGHT,
@@ -153,7 +224,7 @@ export function AccountingGame() {
     }
     setFallingTransactions((prev) => [...prev, newTx])
     return true
-  }, [])
+  }, [difficulty])
 
   useEffect(() => {
     if (gameState !== "playing") {
@@ -181,7 +252,6 @@ export function AccountingGame() {
       spawnTimerRef.current += deltaTime
       if (spawnTimerRef.current >= settings.spawnInterval) {
         const spawned = spawnTransaction()
-        // Hvis banen var blokkert: prøv igjen snart, ikke vent hele intervallet
         spawnTimerRef.current = spawned ? 0 : settings.spawnInterval - 400
       }
 
@@ -196,10 +266,25 @@ export function AccountingGame() {
 
         for (const tx of updated) {
           if (tx.positionY >= GAME_HEIGHT - 20) {
-            // Ett miss telles bare én gang (Strict Mode kan kjøre updateren to ganger)
             if (tx.isCorrect === null && !penalizedMissIdsRef.current.has(tx.id)) {
               penalizedMissIdsRef.current.add(tx.id)
               livesLost++
+              logMistake({
+                description: tx.description,
+                correctAccount: tx.correctAccount,
+                accountName: tx.accountName,
+                explain: tx.explain,
+                reason: "miss",
+              })
+              setLastResult({
+                correct: false,
+                account: "",
+                expected: tx.correctAccount,
+                expectedName: tx.accountName,
+                reason: "miss",
+              })
+              window.setTimeout(() => setLastResult(null), 2000)
+              playTone(180, 0.12, "triangle")
             }
             if (tx.positionY < GAME_HEIGHT + 100) {
               stillFalling.push({ ...tx, isCorrect: tx.isCorrect ?? false })
@@ -226,7 +311,7 @@ export function AccountingGame() {
         gameLoopRef.current = null
       }
     }
-  }, [gameState, getSettings, spawnTransaction, loseLives])
+  }, [gameState, getSettings, spawnTransaction, loseLives, logMistake, playTone])
 
   const handleSubmit = useCallback(() => {
     if (!inputValue || gameState !== "playing") return
@@ -244,6 +329,7 @@ export function AccountingGame() {
     setFallingTransactions((prev) =>
       prev.map((tx) => (tx.id === target.id ? { ...tx, isCorrect } : tx))
     )
+    setSoftHint(null)
 
     if (isCorrect) {
       const responseTime = (Date.now() - target.spawnTime) / 1000
@@ -261,18 +347,41 @@ export function AccountingGame() {
         expected: target.correctAccount,
         pointsEarned: totalPoints,
       })
+      playTone(520, 0.07)
     } else {
+      const tip = getNearMissTip(inputValue, target.correctAccount)
+      logMistake({
+        description: target.description,
+        yourAnswer: inputValue,
+        correctAccount: target.correctAccount,
+        accountName: target.accountName,
+        explain: target.explain,
+        reason: "wrong",
+      })
       loseLives(1)
       setLastResult({
         correct: false,
         account: inputValue,
         expected: target.correctAccount,
+        expectedName: target.accountName,
+        nearMissTip: tip,
+        reason: "wrong",
       })
+      playTone(160, 0.1, "sawtooth")
     }
 
     setInputValue("")
     setTimeout(() => setLastResult(null), 2000)
-  }, [inputValue, fallingTransactions, gameState, streak, getSettings, loseLives])
+  }, [
+    inputValue,
+    fallingTransactions,
+    gameState,
+    streak,
+    getSettings,
+    loseLives,
+    logMistake,
+    playTone,
+  ])
 
   const startGame = () => {
     setGameState("playing")
@@ -285,12 +394,19 @@ export function AccountingGame() {
     setTimeElapsed(0)
     setFallingTransactions([])
     setLastResult(null)
+    setSoftHint(null)
     setInputValue("")
     setScoreSaved(false)
     setSaveError(null)
+    setSessionMistakes([])
+    sessionMistakesRef.current = []
     penalizedMissIdsRef.current.clear()
     isFirstFrameRef.current = true
     spawnTimerRef.current = DIFFICULTY_LEVELS[difficulty].spawnInterval - 500
+  }
+
+  const startPractice = () => {
+    setGameState("practice")
   }
 
   const togglePause = () => {
@@ -299,7 +415,8 @@ export function AccountingGame() {
   }
 
   const saveScore = async () => {
-    if (scoreSaved || isSavingScore || !qualifiesForLeaderboard(leaderboard, score)) return
+    if (scoreSaved || isSavingScore || !qualifiesForLeaderboard(leaderboard, score, difficulty))
+      return
     const name = playerName.trim() || "Anonym"
     setIsSavingScore(true)
     setSaveError(null)
@@ -331,17 +448,26 @@ export function AccountingGame() {
     setFocusToken((t) => t + 1)
   }
 
-  const canSaveScore = qualifiesForLeaderboard(leaderboard, score)
+  const canSaveScore = qualifiesForLeaderboard(leaderboard, score, difficulty)
 
   return (
     <div className="game-atmosphere min-h-screen px-4 py-6">
-      <div className={`mx-auto ${gameState === "playing" || gameState === "paused" ? "max-w-6xl" : "max-w-4xl"}`}>
+      <div
+        className={`mx-auto ${
+          gameState === "playing" || gameState === "paused" || gameState === "practice"
+            ? "max-w-6xl"
+            : "max-w-4xl"
+        }`}
+      >
         <header className="mb-6 text-center">
           <h1 className="animate-brand-rise font-display text-5xl font-extrabold tracking-tight text-ink md:text-6xl">
             Bilag Blitz
           </h1>
           <p className="animate-brand-rise-delay mt-2 text-ink/60">
             Bokfør bilagene før de treffer den røde linjen
+          </p>
+          <p className="animate-brand-rise-delay-2 mt-1 text-xs text-ink/45">
+            NS 4102 · byrå-generell kontoplan — samme koder uansett klient
           </p>
         </header>
 
@@ -391,6 +517,9 @@ export function AccountingGame() {
                       </button>
                     ))}
                   </div>
+                  <p className="mt-2 text-xs text-ink/45">
+                    Lett = daglige kontorkostnader. Ekspert = MVA, lønn og periodisering.
+                  </p>
                 </div>
 
                 <label className="mt-5 flex items-center gap-2 text-sm text-ink/65">
@@ -400,15 +529,33 @@ export function AccountingGame() {
                     onChange={(e) => setShowHints(e.target.checked)}
                     className="h-4 w-4 rounded border-ink/30"
                   />
-                  Vis kontooversikt under spill (anbefalt for nybegynnere)
+                  Vis kontooversikt og myke tips under spill
                 </label>
 
-                <button
-                  onClick={startGame}
-                  className="animate-pulse-stamp mt-8 w-full rounded-xl bg-moss px-8 py-4 font-display text-xl font-bold text-primary-foreground transition-colors hover:bg-moss-bright md:w-auto"
-                >
-                  Start spill
-                </button>
+                <label className="mt-3 flex items-center gap-2 text-sm text-ink/65">
+                  <input
+                    type="checkbox"
+                    checked={soundEnabled}
+                    onChange={(e) => setSoundEnabled(e.target.checked)}
+                    className="h-4 w-4 rounded border-ink/30"
+                  />
+                  Korte lydsignaler (av som standard)
+                </label>
+
+                <div className="mt-8 flex flex-wrap gap-3">
+                  <button
+                    onClick={startGame}
+                    className="animate-pulse-stamp rounded-xl bg-moss px-8 py-4 font-display text-xl font-bold text-primary-foreground transition-colors hover:bg-moss-bright"
+                  >
+                    Start Blitz
+                  </button>
+                  <button
+                    onClick={startPractice}
+                    className="rounded-xl bg-ledger px-8 py-4 font-display text-xl font-bold text-ink transition-colors hover:bg-muted"
+                  >
+                    Øvingsmodus
+                  </button>
+                </div>
 
                 {difficultyHighScore > 0 && (
                   <p className="mt-4 text-sm text-ink/55">
@@ -422,13 +569,15 @@ export function AccountingGame() {
 
               <div className="border-t border-ink/8 bg-ink px-6 py-8 text-paper-bright md:border-l md:border-t-0 md:px-8">
                 <h3 className="font-display text-lg font-bold">Toppliste</h3>
-                <p className="mt-1 text-xs text-paper-bright/45">Delt på tvers av alle spillere</p>
+                <p className="mt-1 text-xs text-paper-bright/45">
+                  {DIFFICULTY_LABELS[difficulty]} — delt på tvers av spillere
+                </p>
 
                 {leaderboardError ? (
                   <p className="mt-8 text-sm text-danger">{leaderboardError}</p>
                 ) : leaderboard.length === 0 ? (
                   <p className="mt-8 text-sm text-paper-bright/50">
-                    Ingen rekorder ennå. Vær først ute!
+                    Ingen rekorder på {DIFFICULTY_LABELS[difficulty]} ennå. Vær først ute!
                   </p>
                 ) : (
                   <ol className="mt-5 space-y-2">
@@ -444,10 +593,7 @@ export function AccountingGame() {
                             </span>
                             {entry.name}
                           </p>
-                          <p className="text-[11px] text-paper-bright/40">
-                            {DIFFICULTY_LABELS[entry.difficulty] ?? entry.difficulty} · nivå{" "}
-                            {entry.level}
-                          </p>
+                          <p className="text-[11px] text-paper-bright/40">nivå {entry.level}</p>
                         </div>
                         <span className="shrink-0 font-mono font-semibold text-stamp-soft">
                           {entry.score.toLocaleString("nb-NO")}
@@ -461,11 +607,17 @@ export function AccountingGame() {
           </div>
         )}
 
+        {gameState === "practice" && (
+          <div className="rounded-2xl border border-ink/10 bg-paper-bright/90 p-6 shadow-[0_24px_60px_rgba(15,31,28,0.12)] md:p-8">
+            <PracticeMode onExit={() => setGameState("menu")} showHints={showHints} />
+          </div>
+        )}
+
         {(gameState === "playing" || gameState === "paused") && (
           <div className="space-y-3">
             <GameStats
               score={score}
-              highScore={Math.max(highScore, score)}
+              highScore={Math.max(difficultyHighScore, score)}
               lives={lives}
               maxLives={DIFFICULTY_LEVELS[difficulty].lives}
               streak={streak}
@@ -538,6 +690,7 @@ export function AccountingGame() {
                   onInputChange={setInputValue}
                   onSubmit={handleSubmit}
                   lastResult={lastResult}
+                  softHint={softHint}
                   focusToken={focusToken}
                   activeHint={
                     activeTransaction
@@ -578,7 +731,9 @@ export function AccountingGame() {
             <div className="mx-auto mt-8 grid max-w-md grid-cols-3 gap-3">
               <div className="rounded-xl bg-ledger/70 p-4">
                 <p className="text-[11px] uppercase tracking-wider text-ink/45">Poeng</p>
-                <p className="font-mono text-2xl font-bold text-stamp">{score.toLocaleString("nb-NO")}</p>
+                <p className="font-mono text-2xl font-bold text-stamp">
+                  {score.toLocaleString("nb-NO")}
+                </p>
               </div>
               <div className="rounded-xl bg-ledger/70 p-4">
                 <p className="text-[11px] uppercase tracking-wider text-ink/45">Nivå</p>
@@ -592,9 +747,38 @@ export function AccountingGame() {
               </div>
             </div>
 
+            {sessionMistakes.length > 0 && (
+              <div className="mx-auto mt-8 max-w-lg rounded-xl border border-ink/10 bg-ledger/40 p-5 text-left">
+                <p className="font-display text-lg font-bold text-ink">Feilbok</p>
+                <p className="mt-1 text-xs text-ink/50">
+                  {sessionMistakes.length} bilag å øve på — lagret til neste økt
+                </p>
+                <ul className="mt-3 max-h-48 space-y-2 overflow-y-auto text-sm">
+                  {sessionMistakes.map((m, i) => (
+                    <li
+                      key={`${m.description}-${i}`}
+                      className="rounded-lg bg-paper-bright/80 px-3 py-2"
+                    >
+                      <p className="text-ink/80">{m.description}</p>
+                      <p className="mt-0.5 font-mono text-xs text-moss">
+                        {m.correctAccount} {m.accountName}
+                        {m.yourAnswer ? (
+                          <span className="text-ink/40"> · du skrev {m.yourAnswer}</span>
+                        ) : (
+                          <span className="text-ink/40"> · miss</span>
+                        )}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             {canSaveScore && !scoreSaved && (
               <div className="mx-auto mt-8 max-w-sm rounded-xl border border-stamp/30 bg-stamp/5 p-5">
-                <p className="font-display text-lg font-bold text-ink">Ny plassering på topplisten!</p>
+                <p className="font-display text-lg font-bold text-ink">
+                  Ny plassering på {DIFFICULTY_LABELS[difficulty]}-listen!
+                </p>
                 <div className="mt-3 flex gap-2">
                   <input
                     type="text"
@@ -621,11 +805,19 @@ export function AccountingGame() {
 
             {scoreSaved && (
               <div className="mx-auto mt-6 max-w-sm rounded-xl bg-moss/10 px-4 py-3 text-moss">
-                Rekorden er lagret på den delte topplisten!
+                Rekorden er lagret på {DIFFICULTY_LABELS[difficulty]}-listen!
               </div>
             )}
 
             <div className="mt-8 flex flex-wrap justify-center gap-3">
+              {sessionMistakes.length > 0 && (
+                <button
+                  onClick={startPractice}
+                  className="rounded-xl bg-stamp px-8 py-3.5 font-display font-bold text-accent-foreground transition-colors hover:bg-stamp-soft hover:text-ink"
+                >
+                  Øv på disse
+                </button>
+              )}
               <button
                 onClick={startGame}
                 className="rounded-xl bg-moss px-8 py-3.5 font-display font-bold text-primary-foreground transition-colors hover:bg-moss-bright"

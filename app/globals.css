@@ -203,3 +203,12 @@
   animation: streak-badge 0.3s ease-out both;
 }
 
+@keyframes active-receipt {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.04); }
+}
+
+.animate-active-receipt {
+  animation: active-receipt 1.4s ease-in-out infinite;
+}
+

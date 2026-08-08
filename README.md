@@ -59,6 +59,8 @@ Kontoplanen er **byrå-generell NS 4102** (firesiffer): samme koder uansett hvil
 
 **Topplisten** er per vanskelighetsgrad, så Lett-rekorder ikke overskygger Ekspert.
 
+**Dagens utfordring** gir 15 seedede bilag for dagens dato (Europe/Oslo) med egen toppliste (`mode=daily&date=YYYY-MM-DD`).
+
 ---
 
 ## Kontoplan
@@ -179,6 +181,7 @@ bilag-blitz-byra-utgave/
 ├── lib/
 │   ├── db/                   # Drizzle + Neon
 │   ├── accounting-data.ts    # NS 4102 + tiered bilag
+│   ├── daily-challenge.ts    # Seedet dagens utfordring (Oslo)
 │   ├── feilbok.ts            # Session mistake log
 │   ├── highscore.ts          # Toppliste-klient + validering
 │   ├── spawn-lanes.ts

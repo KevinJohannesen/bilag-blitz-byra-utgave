@@ -10,6 +10,8 @@ interface GameStatsProps {
   streak: number
   level: number
   timeElapsed: number
+  /** Når satt: vis fremdrift i dagens utfordring (bokført / totalt). */
+  dailyProgress?: { cleared: number; total: number } | null
 }
 
 export function GameStats({
@@ -20,6 +22,7 @@ export function GameStats({
   streak,
   level,
   timeElapsed,
+  dailyProgress = null,
 }: GameStatsProps) {
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
@@ -78,6 +81,14 @@ export function GameStats({
           <p className="text-[10px] uppercase tracking-[0.14em] text-paper-bright/45">Tid</p>
           <p className="font-mono text-lg text-paper-bright/80">{formatTime(timeElapsed)}</p>
         </div>
+        {dailyProgress && (
+          <div className="text-center">
+            <p className="text-[10px] uppercase tracking-[0.14em] text-paper-bright/45">Dagens</p>
+            <p className="font-mono text-lg text-stamp-soft tabular-nums">
+              {dailyProgress.cleared}/{dailyProgress.total}
+            </p>
+          </div>
+        )}
       </div>
 
       <div>

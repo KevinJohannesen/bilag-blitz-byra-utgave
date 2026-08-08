@@ -16,6 +16,8 @@ describe("parseSubmitBody", () => {
       score: 150,
       level: 2,
       difficulty: "hard",
+      mode: "blitz",
+      challengeDate: null,
     })
   })
 
@@ -35,6 +37,46 @@ describe("parseSubmitBody", () => {
       difficulty: "easy",
     })
     expect(long.ok && long.name).toHaveLength(16)
+  })
+
+  it("accepts daily mode with a valid challenge date", () => {
+    const parsed = parseSubmitBody({
+      name: "Kari",
+      score: 900,
+      level: 3,
+      difficulty: "medium",
+      mode: "daily",
+      challengeDate: "2026-04-08",
+    })
+    expect(parsed).toEqual({
+      ok: true,
+      name: "Kari",
+      score: 900,
+      level: 3,
+      difficulty: "medium",
+      mode: "daily",
+      challengeDate: "2026-04-08",
+    })
+  })
+
+  it("rejects daily mode without a valid date", () => {
+    expect(
+      parseSubmitBody({
+        score: 10,
+        level: 1,
+        difficulty: "easy",
+        mode: "daily",
+      }).ok
+    ).toBe(false)
+    expect(
+      parseSubmitBody({
+        score: 10,
+        level: 1,
+        difficulty: "easy",
+        mode: "daily",
+        challengeDate: "2026-13-40",
+      }).ok
+    ).toBe(false)
   })
 
   it("rejects invalid score, level, and difficulty", () => {

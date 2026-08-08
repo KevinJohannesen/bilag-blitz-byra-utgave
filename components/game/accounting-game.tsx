@@ -5,6 +5,10 @@ import { FallingReceipt } from "./falling-receipt"
 import { AccountHints, AccountInput, type LastResult } from "./account-panel"
 import { GameStats } from "./game-stats"
 import { PracticeMode } from "./practice-mode"
+import { ComboBanner } from "./combo-banner"
+import { StampBurst } from "./stamp-burst"
+import { FloatingPoints, type FloatingPoint } from "./floating-points"
+import { MenuAtmosphere } from "./menu-atmosphere"
 import {
   generateTransaction,
   Transaction,
@@ -24,6 +28,18 @@ import {
 } from "@/lib/highscore"
 import { pickSpawnLane } from "@/lib/spawn-lanes"
 import { saveFeilbok, type FeilbokEntry } from "@/lib/feilbok"
+import {
+  accuracyPercent,
+  dangerProximity,
+  emptySessionStats,
+  getComboMilestone,
+  rankTitle,
+  recordCorrect,
+  recordMiss,
+  recordWrong,
+  type ComboMilestone,
+  type SessionStats,
+} from "@/lib/game-juice"
 
 interface FallingTransaction extends Transaction {
   positionY: number
@@ -63,6 +79,11 @@ export function AccountingGame() {
   const [softHint, setSoftHint] = useState<string | null>(null)
   const [sessionMistakes, setSessionMistakes] = useState<FeilbokEntry[]>([])
   const [soundEnabled, setSoundEnabled] = useState(false)
+  const [sessionStats, setSessionStats] = useState<SessionStats>(emptySessionStats)
+  const [comboMilestone, setComboMilestone] = useState<ComboMilestone | null>(null)
+  const [showStamp, setShowStamp] = useState(false)
+  const [screenFlash, setScreenFlash] = useState(false)
+  const [floatingPoints, setFloatingPoints] = useState<FloatingPoint[]>([])
 
   const gameLoopRef = useRef<number | null>(null)
   const lastTimeRef = useRef<number>(0)
@@ -140,28 +161,32 @@ export function AccountingGame() {
   }, [difficulty, level])
 
   useEffect(() => {
-    let cancelled = false
+    let alive = true
 
     async function load() {
       try {
         const entries = await fetchLeaderboard(difficulty)
-        if (!cancelled) {
-          setLeaderboard(entries)
-          setLeaderboardError(null)
-        }
+        if (!alive) return
+        setLeaderboard(entries)
+        setLeaderboardError(null)
       } catch {
-        if (!cancelled) {
-          setLeaderboard([])
-          setLeaderboardError("Kunne ikke laste topplisten")
-        }
+        if (!alive) return
+        setLeaderboard([])
+        setLeaderboardError("Kunne ikke laste topplisten")
       }
     }
 
     void load()
-    return () => {
-      cancelled = true
+    // Refetch when returning to the tab (helps after deploy / Neon wake)
+    const onFocus = () => {
+      if (gameState === "menu") void load()
     }
-  }, [difficulty])
+    window.addEventListener("focus", onFocus)
+    return () => {
+      alive = false
+      window.removeEventListener("focus", onFocus)
+    }
+  }, [difficulty, gameState])
 
   useEffect(() => {
     fallingRef.current = fallingTransactions
@@ -276,6 +301,7 @@ export function AccountingGame() {
                 explain: tx.explain,
                 reason: "miss",
               })
+              setSessionStats((s) => recordMiss(s))
               setLastResult({
                 correct: false,
                 account: "",
@@ -339,15 +365,42 @@ export function AccountingGame() {
           : 0
       const streakBonus = streak * 10
       const totalPoints = settings.pointsPerCorrect + timeBonus + streakBonus
+      const nextStreak = streak + 1
+      const milestone = getComboMilestone(nextStreak)
+      const floaterId = crypto.randomUUID()
       setScore((s) => s + totalPoints)
-      setStreak((s) => s + 1)
+      setStreak(nextStreak)
+      setSessionStats((s) => recordCorrect(s, nextStreak, level))
       setLastResult({
         correct: true,
         account: inputValue,
         expected: target.correctAccount,
         pointsEarned: totalPoints,
       })
-      playTone(520, 0.07)
+      setShowStamp(true)
+      setScreenFlash(true)
+      setFloatingPoints((prev) => [
+        ...prev.slice(-4),
+        {
+          id: floaterId,
+          points: totalPoints,
+          x: target.positionX,
+          y: Math.max(40, target.positionY),
+        },
+      ])
+      window.setTimeout(() => setShowStamp(false), 750)
+      window.setTimeout(() => setScreenFlash(false), 350)
+      window.setTimeout(() => {
+        setFloatingPoints((prev) => prev.filter((p) => p.id !== floaterId))
+      }, 950)
+      if (milestone) {
+        setComboMilestone(milestone)
+        window.setTimeout(() => setComboMilestone(null), 1350)
+        playTone(660, 0.12)
+        window.setTimeout(() => playTone(880, 0.1), 80)
+      } else {
+        playTone(520, 0.07)
+      }
     } else {
       const tip = getNearMissTip(inputValue, target.correctAccount)
       logMistake({
@@ -358,6 +411,7 @@ export function AccountingGame() {
         explain: target.explain,
         reason: "wrong",
       })
+      setSessionStats((s) => recordWrong(s))
       loseLives(1)
       setLastResult({
         correct: false,
@@ -377,6 +431,7 @@ export function AccountingGame() {
     fallingTransactions,
     gameState,
     streak,
+    level,
     getSettings,
     loseLives,
     logMistake,
@@ -400,6 +455,11 @@ export function AccountingGame() {
     setSaveError(null)
     setSessionMistakes([])
     sessionMistakesRef.current = []
+    setSessionStats(emptySessionStats())
+    setComboMilestone(null)
+    setShowStamp(false)
+    setScreenFlash(false)
+    setFloatingPoints([])
     penalizedMissIdsRef.current.clear()
     isFirstFrameRef.current = true
     spawnTimerRef.current = DIFFICULTY_LEVELS[difficulty].spawnInterval - 500
@@ -449,6 +509,12 @@ export function AccountingGame() {
   }
 
   const canSaveScore = qualifiesForLeaderboard(leaderboard, score, difficulty)
+  const fieldDanger =
+    activeTransaction && activeTransaction.isCorrect === null
+      ? dangerProximity(activeTransaction.positionY, GAME_HEIGHT)
+      : 0
+  const title = rankTitle(sessionStats, score)
+  const accuracy = accuracyPercent(sessionStats)
 
   return (
     <div className="game-atmosphere min-h-screen px-4 py-6">
@@ -472,10 +538,12 @@ export function AccountingGame() {
         </header>
 
         {gameState === "menu" && (
-          <div className="overflow-hidden rounded-2xl border border-ink/10 bg-paper-bright/90 shadow-[0_24px_60px_rgba(15,31,28,0.12)]">
-            <div className="grid gap-0 md:grid-cols-[1.1fr_0.9fr]">
+          <div className="relative overflow-hidden rounded-2xl border border-ink/10 bg-paper-bright/90 shadow-[0_24px_60px_rgba(15,31,28,0.12)]">
+            <MenuAtmosphere />
+            <div className="relative z-10 grid gap-0 md:grid-cols-[1.1fr_0.9fr]">
               <div className="p-8 md:p-10">
-                <h2 className="font-display text-2xl font-bold text-ink">Klar for bokføring?</h2>
+                <p className="text-[11px] uppercase tracking-[0.18em] text-stamp">Byrå-utgave</p>
+                <h2 className="mt-1 font-display text-2xl font-bold text-ink">Klar for bokføring?</h2>
 
                 <ol className="mt-5 space-y-3">
                   <li className="flex gap-3 text-sm text-ink/70">
@@ -625,10 +693,24 @@ export function AccountingGame() {
               timeElapsed={timeElapsed}
             />
 
-            <div className="flex justify-end">
+            <div className="flex items-center justify-between gap-3">
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-ink/10">
+                <div
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    streak >= 12
+                      ? "bg-stamp"
+                      : streak >= 8
+                        ? "bg-stamp-soft"
+                        : streak >= 5
+                          ? "bg-moss-bright"
+                          : "bg-moss/50"
+                  }`}
+                  style={{ width: `${Math.min(100, (streak / 12) * 100)}%` }}
+                />
+              </div>
               <button
                 onClick={togglePause}
-                className="rounded-lg bg-ink/90 px-4 py-2 text-sm text-paper-bright transition-colors hover:bg-ink"
+                className="shrink-0 rounded-lg bg-ink/90 px-4 py-2 text-sm text-paper-bright transition-colors hover:bg-ink"
               >
                 {gameState === "paused" ? "Fortsett" : "Pause"}
               </button>
@@ -641,7 +723,9 @@ export function AccountingGame() {
             >
               <div className="min-w-0 space-y-3">
                 <div
-                  className="game-field relative overflow-hidden rounded-2xl border-2 border-ink/15"
+                  className={`game-field relative overflow-hidden rounded-2xl border-2 border-ink/15 ${
+                    fieldDanger > 0.65 ? "game-field-danger" : ""
+                  }`}
                   style={{ height: `${GAME_HEIGHT}px` }}
                 >
                   <div className="pointer-events-none absolute inset-0 opacity-[0.12]">
@@ -672,11 +756,19 @@ export function AccountingGame() {
                       positionX={tx.positionX}
                       isCorrect={tx.isCorrect}
                       isActive={tx.id === activeTransactionId}
+                      gameHeight={GAME_HEIGHT}
                     />
                   ))}
 
+                  <FloatingPoints items={floatingPoints} />
+                  <StampBurst show={showStamp} />
+                  <ComboBanner milestone={comboMilestone} />
+                  {screenFlash && (
+                    <div className="animate-screen-flash pointer-events-none absolute inset-0 z-10" />
+                  )}
+
                   {gameState === "paused" && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-ink/80">
+                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-ink/80">
                       <div className="text-center text-paper-bright">
                         <p className="font-display text-3xl font-bold">Pause</p>
                         <p className="mt-2 text-paper-bright/60">Trykk Fortsett for å spille videre</p>
@@ -726,9 +818,13 @@ export function AccountingGame() {
           <div className="rounded-2xl border border-ink/10 bg-paper-bright p-8 text-center shadow-[0_24px_60px_rgba(15,31,28,0.12)] md:p-10">
             <p className="text-[11px] uppercase tracking-[0.22em] text-stamp">Regnskapet er lukket</p>
             <h2 className="mt-2 font-display text-4xl font-bold text-ink">Spill over</h2>
-            <p className="mt-2 text-ink/60">Balanse… men ikke på den gode måten.</p>
+            <p className="mt-2 text-ink/60">
+              Rang: <span className="font-semibold text-moss">{title}</span>
+              {" · "}
+              {accuracy}% treffsikkerhet
+            </p>
 
-            <div className="mx-auto mt-8 grid max-w-md grid-cols-3 gap-3">
+            <div className="mx-auto mt-8 grid max-w-lg grid-cols-2 gap-3 sm:grid-cols-4">
               <div className="rounded-xl bg-ledger/70 p-4">
                 <p className="text-[11px] uppercase tracking-wider text-ink/45">Poeng</p>
                 <p className="font-mono text-2xl font-bold text-stamp">
@@ -736,8 +832,12 @@ export function AccountingGame() {
                 </p>
               </div>
               <div className="rounded-xl bg-ledger/70 p-4">
-                <p className="text-[11px] uppercase tracking-wider text-ink/45">Nivå</p>
-                <p className="font-display text-2xl font-bold text-moss">{level}</p>
+                <p className="text-[11px] uppercase tracking-wider text-ink/45">Beste streak</p>
+                <p className="font-display text-2xl font-bold text-stamp">{sessionStats.bestStreak}</p>
+              </div>
+              <div className="rounded-xl bg-ledger/70 p-4">
+                <p className="text-[11px] uppercase tracking-wider text-ink/45">Riktige</p>
+                <p className="font-display text-2xl font-bold text-moss">{sessionStats.correct}</p>
               </div>
               <div className="rounded-xl bg-ledger/70 p-4">
                 <p className="text-[11px] uppercase tracking-wider text-ink/45">Tid</p>

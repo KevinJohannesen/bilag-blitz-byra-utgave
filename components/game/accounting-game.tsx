@@ -20,6 +20,12 @@ import {
   getSoftHint,
 } from "@/lib/accounting-data"
 import {
+  DAILY_TRANSACTION_COUNT,
+  didClearDaily,
+  getDailyTransactions,
+  getOsloDateString,
+} from "@/lib/daily-challenge"
+import {
   HighScoreEntry,
   fetchLeaderboard,
   getBestScore,
@@ -41,6 +47,9 @@ import {
   type SessionStats,
 } from "@/lib/game-juice"
 
+type PlayMode = "blitz" | "daily"
+type BoardTab = "blitz" | "daily"
+
 interface FallingTransaction extends Transaction {
   positionY: number
   positionX: number
@@ -59,6 +68,11 @@ const MAX_ACTIVE_RECEIPTS = 3
 export function AccountingGame() {
   const [gameState, setGameState] = useState<GameState>("menu")
   const [difficulty, setDifficulty] = useState<string>("medium")
+  const [playMode, setPlayMode] = useState<PlayMode>("blitz")
+  const [boardTab, setBoardTab] = useState<BoardTab>("blitz")
+  const [challengeDate, setChallengeDate] = useState<string | null>(null)
+  const [dailyCleared, setDailyCleared] = useState(false)
+  const [dailyRemaining, setDailyRemaining] = useState(0)
   const [score, setScore] = useState(0)
   const [leaderboard, setLeaderboard] = useState<HighScoreEntry[]>([])
   const [lives, setLives] = useState(4)
@@ -94,8 +108,23 @@ export function AccountingGame() {
   const penalizedMissIdsRef = useRef<Set<string>>(new Set())
   const sessionMistakesRef = useRef<FeilbokEntry[]>([])
   const audioCtxRef = useRef<AudioContext | null>(null)
+  const playModeRef = useRef<PlayMode>("blitz")
+  const dailyQueueRef = useRef<Transaction[]>([])
+  const dailySpawnedRef = useRef(0)
 
+  const todayOslo = getOsloDateString()
   const difficultyHighScore = getBestScore(leaderboard, difficulty)
+  const dailyProgress =
+    playMode === "daily"
+      ? {
+          cleared: DAILY_TRANSACTION_COUNT - dailyRemaining,
+          total: DAILY_TRANSACTION_COUNT,
+        }
+      : null
+
+  useEffect(() => {
+    playModeRef.current = playMode
+  }, [playMode])
 
   useEffect(() => {
     livesRef.current = lives
@@ -165,7 +194,15 @@ export function AccountingGame() {
 
     async function load() {
       try {
-        const entries = await fetchLeaderboard(difficulty)
+        const date = getOsloDateString()
+        const entries =
+          boardTab === "daily"
+            ? await fetchLeaderboard({
+                difficulty,
+                mode: "daily",
+                challengeDate: date,
+              })
+            : await fetchLeaderboard({ difficulty, mode: "blitz" })
         if (!alive) return
         setLeaderboard(entries)
         setLeaderboardError(null)
@@ -186,7 +223,7 @@ export function AccountingGame() {
       alive = false
       window.removeEventListener("focus", onFocus)
     }
-  }, [difficulty, gameState])
+  }, [difficulty, gameState, boardTab])
 
   useEffect(() => {
     fallingRef.current = fallingTransactions
@@ -231,6 +268,22 @@ export function AccountingGame() {
     return () => clearTimeout(timer)
   }, [fallingTransactions, gameState, showHints, difficulty])
 
+  const finishDailyClear = useCallback(() => {
+    if (playModeRef.current !== "daily") return
+    if (
+      !didClearDaily({
+        spawnedCount: dailySpawnedRef.current,
+        livesRemaining: livesRef.current,
+        total: DAILY_TRANSACTION_COUNT,
+      })
+    ) {
+      return
+    }
+    setDailyCleared(true)
+    saveFeilbok(sessionMistakesRef.current)
+    setGameState("gameover")
+  }, [])
+
   const spawnTransaction = useCallback(() => {
     const active = fallingRef.current.filter((tx) => tx.isCorrect === null)
     if (active.length >= MAX_ACTIVE_RECEIPTS) return false
@@ -238,7 +291,17 @@ export function AccountingGame() {
     const lane = pickSpawnLane(active, { blockY: LANE_BLOCK_Y })
     if (lane === null) return false
 
-    const tx = generateTransaction(difficulty)
+    let tx: Transaction
+    if (playModeRef.current === "daily") {
+      const next = dailyQueueRef.current.shift()
+      if (!next) return false
+      tx = next
+      dailySpawnedRef.current += 1
+      setDailyRemaining(dailyQueueRef.current.length)
+    } else {
+      tx = generateTransaction(difficulty)
+    }
+
     const newTx: FallingTransaction = {
       ...tx,
       positionY: -RECEIPT_HEIGHT,
@@ -322,6 +385,20 @@ export function AccountingGame() {
 
         if (livesLost > 0) loseLives(livesLost)
 
+        const remainingActive = stillFalling.filter(
+          (tx) => tx.positionY < GAME_HEIGHT + 100 && tx.isCorrect === null
+        )
+        if (
+          playModeRef.current === "daily" &&
+          dailyQueueRef.current.length === 0 &&
+          remainingActive.length === 0 &&
+          livesRef.current > 0 &&
+          dailySpawnedRef.current >= DAILY_TRANSACTION_COUNT
+        ) {
+          // Defer so we don't setState during the falling-transactions updater
+          queueMicrotask(() => finishDailyClear())
+        }
+
         return stillFalling.filter((tx) => tx.positionY < GAME_HEIGHT + 100)
       })
 
@@ -337,7 +414,7 @@ export function AccountingGame() {
         gameLoopRef.current = null
       }
     }
-  }, [gameState, getSettings, spawnTransaction, loseLives, logMistake, playTone])
+  }, [gameState, getSettings, spawnTransaction, loseLives, logMistake, playTone, finishDailyClear])
 
   const handleSubmit = useCallback(() => {
     if (!inputValue || gameState !== "playing") return
@@ -438,7 +515,11 @@ export function AccountingGame() {
     playTone,
   ])
 
-  const startGame = () => {
+  const resetRunState = (mode: PlayMode, date: string | null) => {
+    setPlayMode(mode)
+    playModeRef.current = mode
+    setChallengeDate(date)
+    setDailyCleared(false)
     setGameState("playing")
     setScore(0)
     const startingLives = DIFFICULTY_LEVELS[difficulty].lives
@@ -465,6 +546,36 @@ export function AccountingGame() {
     spawnTimerRef.current = DIFFICULTY_LEVELS[difficulty].spawnInterval - 500
   }
 
+  const startGame = () => {
+    dailyQueueRef.current = []
+    dailySpawnedRef.current = 0
+    setDailyRemaining(0)
+    resetRunState("blitz", null)
+  }
+
+  const startDailyChallenge = () => {
+    const date = getOsloDateString()
+    const queue = getDailyTransactions(difficulty, date)
+    dailyQueueRef.current = [...queue]
+    dailySpawnedRef.current = 0
+    setDailyRemaining(queue.length)
+    setBoardTab("daily")
+    resetRunState("daily", date)
+    void fetchLeaderboard({
+      difficulty,
+      mode: "daily",
+      challengeDate: date,
+    })
+      .then((entries) => {
+        setLeaderboard(entries)
+        setLeaderboardError(null)
+      })
+      .catch(() => {
+        setLeaderboard([])
+        setLeaderboardError("Kunne ikke laste topplisten")
+      })
+  }
+
   const startPractice = () => {
     setGameState("practice")
   }
@@ -486,9 +597,12 @@ export function AccountingGame() {
         score,
         level,
         difficulty,
+        mode: playMode,
+        challengeDate: playMode === "daily" ? challengeDate : null,
       })
       setLeaderboard(next)
       setScoreSaved(true)
+      if (playMode === "daily") setBoardTab("daily")
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : "Kunne ikke lagre rekorden")
     } finally {
@@ -618,14 +732,24 @@ export function AccountingGame() {
                     Start Blitz
                   </button>
                   <button
+                    onClick={startDailyChallenge}
+                    className="rounded-xl bg-stamp px-8 py-4 font-display text-xl font-bold text-accent-foreground transition-colors hover:bg-stamp-soft hover:text-ink"
+                  >
+                    Dagens utfordring
+                  </button>
+                  <button
                     onClick={startPractice}
                     className="rounded-xl bg-ledger px-8 py-4 font-display text-xl font-bold text-ink transition-colors hover:bg-muted"
                   >
                     Øvingsmodus
                   </button>
                 </div>
+                <p className="mt-3 text-xs text-ink/45">
+                  Dagens utfordring: {DAILY_TRANSACTION_COUNT} faste bilag for {todayOslo} (Oslo) —
+                  samme rekkefølge for alle.
+                </p>
 
-                {difficultyHighScore > 0 && (
+                {difficultyHighScore > 0 && boardTab === "blitz" && (
                   <p className="mt-4 text-sm text-ink/55">
                     Rekord på {DIFFICULTY_LABELS[difficulty]}:{" "}
                     <span className="font-mono font-semibold text-stamp">
@@ -637,15 +761,43 @@ export function AccountingGame() {
 
               <div className="border-t border-ink/8 bg-ink px-6 py-8 text-paper-bright md:border-l md:border-t-0 md:px-8">
                 <h3 className="font-display text-lg font-bold">Toppliste</h3>
-                <p className="mt-1 text-xs text-paper-bright/45">
-                  {DIFFICULTY_LABELS[difficulty]} — delt på tvers av spillere
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setBoardTab("blitz")}
+                    className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                      boardTab === "blitz"
+                        ? "bg-paper-bright/15 text-stamp-soft"
+                        : "text-paper-bright/50 hover:text-paper-bright/80"
+                    }`}
+                  >
+                    Blitz
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBoardTab("daily")}
+                    className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                      boardTab === "daily"
+                        ? "bg-paper-bright/15 text-stamp-soft"
+                        : "text-paper-bright/50 hover:text-paper-bright/80"
+                    }`}
+                  >
+                    Dagens
+                  </button>
+                </div>
+                <p className="mt-2 text-xs text-paper-bright/45">
+                  {boardTab === "daily"
+                    ? `${DIFFICULTY_LABELS[difficulty]} · ${todayOslo} — egen daily-liste`
+                    : `${DIFFICULTY_LABELS[difficulty]} — delt på tvers av spillere`}
                 </p>
 
                 {leaderboardError ? (
                   <p className="mt-8 text-sm text-danger">{leaderboardError}</p>
                 ) : leaderboard.length === 0 ? (
                   <p className="mt-8 text-sm text-paper-bright/50">
-                    Ingen rekorder på {DIFFICULTY_LABELS[difficulty]} ennå. Vær først ute!
+                    {boardTab === "daily"
+                      ? `Ingen daily-rekorder på ${DIFFICULTY_LABELS[difficulty]} i dag ennå.`
+                      : `Ingen rekorder på ${DIFFICULTY_LABELS[difficulty]} ennå. Vær først ute!`}
                   </p>
                 ) : (
                   <ol className="mt-5 space-y-2">
@@ -691,6 +843,7 @@ export function AccountingGame() {
               streak={streak}
               level={level}
               timeElapsed={timeElapsed}
+              dailyProgress={dailyProgress}
             />
 
             <div className="flex items-center justify-between gap-3">
@@ -816,13 +969,25 @@ export function AccountingGame() {
 
         {gameState === "gameover" && (
           <div className="rounded-2xl border border-ink/10 bg-paper-bright p-8 text-center shadow-[0_24px_60px_rgba(15,31,28,0.12)] md:p-10">
-            <p className="text-[11px] uppercase tracking-[0.22em] text-stamp">Regnskapet er lukket</p>
-            <h2 className="mt-2 font-display text-4xl font-bold text-ink">Spill over</h2>
+            <p className="text-[11px] uppercase tracking-[0.22em] text-stamp">
+              {playMode === "daily" ? "Dagens utfordring" : "Regnskapet er lukket"}
+            </p>
+            <h2 className="mt-2 font-display text-4xl font-bold text-ink">
+              {playMode === "daily" && dailyCleared ? "Utfordring klarert!" : "Spill over"}
+            </h2>
             <p className="mt-2 text-ink/60">
               Rang: <span className="font-semibold text-moss">{title}</span>
               {" · "}
               {accuracy}% treffsikkerhet
+              {playMode === "daily" && challengeDate ? <>{" · "}{challengeDate}</> : null}
             </p>
+            {playMode === "daily" && (
+              <p className="mt-2 text-sm text-ink/55">
+                {dailyCleared
+                  ? `Du klarte alle ${DAILY_TRANSACTION_COUNT} bilag med liv til overs.`
+                  : `Du nådde ${DAILY_TRANSACTION_COUNT - dailyRemaining} av ${DAILY_TRANSACTION_COUNT} bilag.`}
+              </p>
+            )}
 
             <div className="mx-auto mt-8 grid max-w-lg grid-cols-2 gap-3 sm:grid-cols-4">
               <div className="rounded-xl bg-ledger/70 p-4">
@@ -877,7 +1042,9 @@ export function AccountingGame() {
             {canSaveScore && !scoreSaved && (
               <div className="mx-auto mt-8 max-w-sm rounded-xl border border-stamp/30 bg-stamp/5 p-5">
                 <p className="font-display text-lg font-bold text-ink">
-                  Ny plassering på {DIFFICULTY_LABELS[difficulty]}-listen!
+                  {playMode === "daily"
+                    ? `Ny plassering på dagens ${DIFFICULTY_LABELS[difficulty]}-liste!`
+                    : `Ny plassering på ${DIFFICULTY_LABELS[difficulty]}-listen!`}
                 </p>
                 <div className="mt-3 flex gap-2">
                   <input
@@ -905,7 +1072,9 @@ export function AccountingGame() {
 
             {scoreSaved && (
               <div className="mx-auto mt-6 max-w-sm rounded-xl bg-moss/10 px-4 py-3 text-moss">
-                Rekorden er lagret på {DIFFICULTY_LABELS[difficulty]}-listen!
+                {playMode === "daily"
+                  ? "Daily-rekorden er lagret!"
+                  : `Rekorden er lagret på ${DIFFICULTY_LABELS[difficulty]}-listen!`}
               </div>
             )}
 
@@ -919,10 +1088,10 @@ export function AccountingGame() {
                 </button>
               )}
               <button
-                onClick={startGame}
+                onClick={playMode === "daily" ? startDailyChallenge : startGame}
                 className="rounded-xl bg-moss px-8 py-3.5 font-display font-bold text-primary-foreground transition-colors hover:bg-moss-bright"
               >
-                Spill igjen
+                {playMode === "daily" ? "Prøv dagen på nytt" : "Spill igjen"}
               </button>
               <button
                 onClick={() => setGameState("menu")}

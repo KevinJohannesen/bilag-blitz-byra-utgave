@@ -4,11 +4,19 @@ export interface HighScoreEntry {
   level: number
   difficulty: string
   date: string
+  mode?: "blitz" | "daily"
+  challengeDate?: string | null
 }
 
 export const MAX_ENTRIES = 10
 
 const VALID_DIFFICULTIES = new Set(["easy", "medium", "hard", "expert"])
+
+export interface LeaderboardQuery {
+  difficulty?: string
+  mode?: "blitz" | "daily"
+  challengeDate?: string
+}
 
 export function getBestScore(entries: HighScoreEntry[], difficulty?: string): number {
   const pool = difficulty
@@ -46,9 +54,28 @@ export function isValidDifficulty(value: string): boolean {
   return VALID_DIFFICULTIES.has(value)
 }
 
-export async function fetchLeaderboard(difficulty?: string): Promise<HighScoreEntry[]> {
-  const params = difficulty ? `?difficulty=${encodeURIComponent(difficulty)}` : ""
-  const res = await fetch(`/api/leaderboard${params}`, { cache: "no-store" })
+function buildLeaderboardQuery(query: LeaderboardQuery = {}): string {
+  const params = new URLSearchParams()
+  if (query.difficulty) params.set("difficulty", query.difficulty)
+  if (query.mode) params.set("mode", query.mode)
+  if (query.challengeDate) params.set("date", query.challengeDate)
+  const qs = params.toString()
+  return qs ? `?${qs}` : ""
+}
+
+export async function fetchLeaderboard(
+  difficultyOrQuery?: string | LeaderboardQuery
+): Promise<HighScoreEntry[]> {
+  const query: LeaderboardQuery =
+    typeof difficultyOrQuery === "string"
+      ? { difficulty: difficultyOrQuery, mode: "blitz" }
+      : difficultyOrQuery
+        ? { mode: "blitz", ...difficultyOrQuery }
+        : { mode: "blitz" }
+
+  const res = await fetch(`/api/leaderboard${buildLeaderboardQuery(query)}`, {
+    cache: "no-store",
+  })
   if (!res.ok) {
     throw new Error("Kunne ikke hente topplisten")
   }
@@ -57,7 +84,10 @@ export async function fetchLeaderboard(difficulty?: string): Promise<HighScoreEn
 }
 
 export async function submitHighScore(
-  entry: Omit<HighScoreEntry, "date">
+  entry: Omit<HighScoreEntry, "date"> & {
+    mode?: "blitz" | "daily"
+    challengeDate?: string | null
+  }
 ): Promise<HighScoreEntry[]> {
   const res = await fetch("/api/leaderboard", {
     method: "POST",

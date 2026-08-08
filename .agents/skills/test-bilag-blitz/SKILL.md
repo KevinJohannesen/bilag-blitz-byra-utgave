@@ -24,27 +24,35 @@ pnpm dev -- --port 3001
 
 This app has no login. Open the origin once in the controlled browser (T3 Code preview or Cursor browser tools):
 
-- Menu loads with brand **Bilag Blitz**, difficulty buttons, and **Toppliste**
+- Menu loads with brand **Bilag Blitz**, difficulty buttons, **Start Blitz**, **Dagens utfordring**, **Øvingsmodus**, and **Toppliste** (Blitz / Dagens tabs)
 - Toppliste subtitle should say it is shared across players (not localStorage)
 - Hearts (`♥`) render for lives in the HUD during play
+- Daily HUD shows `Dagens N/15` progress when in dagens utfordring
 
 ## Verify the shared leaderboard
 
 Against the running origin (replace host/port as needed):
 
 ```bash
-curl -sS "http://127.0.0.1:3001/api/leaderboard"
+curl -sS "http://127.0.0.1:3001/api/leaderboard?difficulty=medium"
+curl -sS "http://127.0.0.1:3001/api/leaderboard?difficulty=medium&mode=daily&date=$(TZ=Europe/Oslo date +%F)"
 curl -sS -X POST "http://127.0.0.1:3001/api/leaderboard" \
   -H "Content-Type: application/json" \
   -d '{"name":"AgentTest","score":123,"level":1,"difficulty":"medium"}'
+curl -sS -X POST "http://127.0.0.1:3001/api/leaderboard" \
+  -H "Content-Type: application/json" \
+  -d "{\"name\":\"DailyAgent\",\"score\":456,\"level\":2,\"difficulty\":\"medium\",\"mode\":\"daily\",\"challengeDate\":\"$(TZ=Europe/Oslo date +%F)\"}"
 ```
 
 Expect:
 
-- `GET` → `{ "entries": [...] }` sorted by score desc, max 10
+- `GET` (blitz) → `{ "entries": [...], "mode": "blitz" }` sorted by score desc, max 10
+- `GET` (daily) → `{ "entries": [...], "mode": "daily", "date": "YYYY-MM-DD" }` — separate from Blitz
 - Valid `POST` → `201` with updated `entries`
-- Invalid body (bad difficulty / non-positive score) → `400`
+- Invalid body (bad difficulty / non-positive score / daily uten dato) → `400`
 - Score that does not beat the board when full → `409`
+
+After schema changes that add `mode` / `challenge_date`, run `pnpm db:push` once before expecting daily boards to work against Neon.
 
 Do not commit secrets from `.env.local`. Prefer unique test names so smoke scores are identifiable.
 

@@ -546,9 +546,16 @@ const COMPANY_POOLS: Record<CompanyTag, string[]> = {
   ],
 }
 
-export function generateCompanyName(tag: CompanyTag = "kontor"): string {
+export function pickCompanyName(
+  tag: CompanyTag = "kontor",
+  random: () => number = Math.random
+): string {
   const pool = COMPANY_POOLS[tag]
-  return pool[Math.floor(Math.random() * pool.length)]
+  return pool[Math.floor(random() * pool.length)]
+}
+
+export function generateCompanyName(tag: CompanyTag = "kontor"): string {
+  return pickCompanyName(tag)
 }
 
 export interface Transaction {
